@@ -1,0 +1,101 @@
+{
+  "name": "schemock",
+  "version": "0.0.1",
+  "description": "Schema-first mocking for frontend developers. Define once. Mock instantly. Ship faster.",
+  "keywords": [
+    "mock",
+    "schema",
+    "frontend",
+    "typescript",
+    "api",
+    "testing",
+    "development",
+    "openapi",
+    "fake-data",
+    "msw"
+  ],
+  "author": "",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": ""
+  },
+  "main": "dist/index.js",
+  "module": "dist/index.mjs",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.mjs",
+      "require": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    },
+    "./schema": {
+      "import": "./dist/schema/index.mjs",
+      "require": "./dist/schema/index.js",
+      "types": "./dist/schema/index.d.ts"
+    },
+    "./runtime": {
+      "import": "./dist/runtime/index.mjs",
+      "require": "./dist/runtime/index.js",
+      "types": "./dist/runtime/index.d.ts"
+    },
+    "./adapters": {
+      "import": "./dist/adapters/index.mjs",
+      "require": "./dist/adapters/index.js",
+      "types": "./dist/adapters/index.d.ts"
+    },
+    "./middleware": {
+      "import": "./dist/middleware/index.mjs",
+      "require": "./dist/middleware/index.js",
+      "types": "./dist/middleware/index.d.ts"
+    },
+    "./react": {
+      "import": "./dist/react/index.mjs",
+      "require": "./dist/react/index.js",
+      "types": "./dist/react/index.d.ts"
+    },
+    "./build/vite": {
+      "import": "./dist/build/vite-plugin.mjs",
+      "require": "./dist/build/vite-plugin.js",
+      "types": "./dist/build/vite-plugin.d.ts"
+    },
+    "./build/webpack": {
+      "import": "./dist/build/webpack-plugin.mjs",
+      "require": "./dist/build/webpack-plugin.js",
+      "types": "./dist/build/webpack-plugin.d.ts"
+    }
+  },
+  "bin": {
+    "schemock": "./dist/cli.js"
+  },
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "test": "vitest",
+    "lint": "eslint src",
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "npm run build"
+  },
+  "peerDependencies": {
+    "@faker-js/faker": "^8.0.0",
+    "@tanstack/react-query": "^5.0.0",
+    "msw": "^2.0.0",
+    "react": "^18.0.0",
+    "zod": "^3.0.0"
+  },
+  "peerDependenciesMeta": {
+    "@faker-js/faker": { "optional": true },
+    "@tanstack/react-query": { "optional": true },
+    "msw": { "optional": true },
+    "react": { "optional": true }
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "tsup": "^8.0.0",
+    "typescript": "^5.0.0",
+    "vitest": "^1.0.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

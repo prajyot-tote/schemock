@@ -1,0 +1,20 @@
+{
+  "file_count": 2,
+  "interaction_count": 0,
+  "interactions_since_last_analysis": 0,
+  "last_snapshot": "",
+  "last_reason": "",
+  "last_analysis_timestamp": "",
+  "modified_files": [
+    {
+      "path": "/Users/prajyot/Documents/Work/Matt/schemock/.claude/sessions/.active-session",
+      "operation": "write",
+      "timestamp": "2025-12-11T03:15:08.448Z"
+    },
+    {
+      "path": "/Users/prajyot/Documents/Work/Matt/schemock/CLAUDE.md",
+      "operation": "write",
+      "timestamp": "2025-12-11T03:15:29.098Z"
+    }
+  ]
+}

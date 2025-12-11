@@ -1,0 +1,372 @@
+# Implementation Roadmap
+
+## Overview
+
+This document outlines the implementation phases for Schemock, from MVP to full feature set.
+
+## Phase Summary
+
+| Phase | Focus | Duration |
+|-------|-------|----------|
+| 1 | Core Schema + Types | 2 weeks |
+| 2 | Mock Data + Persistence | 2 weeks |
+| 3 | Resolvers + Relations | 2 weeks |
+| 4 | Adapters + Middleware | 2 weeks |
+| 5 | OpenAPI Generation | 1 week |
+| 6 | Compile Elimination | 2 weeks |
+| 7 | React Bindings | 1 week |
+| 8 | CLI + DevTools | 1 week |
+| 9 | Documentation + Examples | 1 week |
+| **Total** | | **14 weeks** |
+
+---
+
+## Phase 1: Core Schema DSL
+
+### Goals
+- Define the schema DSL API
+- Implement field type builders
+- Implement type inference
+
+### Deliverables
+- `@schemock/schema` package
+- Field types: string, number, boolean, date, enum, array, object
+- Faker integration for field types
+- TypeScript type inference from schema
+
+### Tasks
+- [ ] Design field builder API
+- [ ] Implement `defineData()` function
+- [ ] Implement `field.*` builders
+- [ ] Implement type inference
+- [ ] Write unit tests
+- [ ] Write initial documentation
+
+### Dependencies
+- None (foundational)
+
+---
+
+## Phase 2: Mock Data Generation + Persistence
+
+### Goals
+- Generate mock data from schema
+- In-memory persistence via @mswjs/data
+- CRUD operations
+
+### Deliverables
+- Schema → @mswjs/data factory generator
+- Seeding utilities
+- Basic CRUD operations
+
+### Tasks
+- [ ] Implement schema registry
+- [ ] Generate @mswjs/data factory from schema
+- [ ] Implement `seed()` function
+- [ ] Implement `reset()` function
+- [ ] Test CRUD persistence
+- [ ] Write documentation
+
+### Dependencies
+- Phase 1 (Schema DSL)
+- @mswjs/data
+- @faker-js/faker
+
+---
+
+## Phase 3: Resolvers + Relations
+
+### Goals
+- Relationship support (hasOne, hasMany, belongsTo)
+- Computed fields
+- Views/aggregations
+
+### Deliverables
+- Relation resolver
+- Computed field resolver
+- View resolver
+- Query options (include, where, orderBy)
+
+### Tasks
+- [ ] Implement relation definitions
+- [ ] Implement relation resolver
+- [ ] Implement computed field resolver
+- [ ] Implement view definitions
+- [ ] Implement view resolver
+- [ ] Handle circular references
+- [ ] Performance optimization
+- [ ] Write tests
+
+### Dependencies
+- Phase 2 (Persistence)
+
+---
+
+## Phase 4: Adapters + Middleware
+
+### Goals
+- Pluggable backend adapters
+- Middleware system
+- Production runtime
+
+### Deliverables
+- Adapter interface
+- Fetch adapter
+- Supabase adapter
+- Firebase adapter
+- GraphQL adapter
+- Auth middleware
+- Retry middleware
+- Cache middleware
+- Logger middleware
+- Middleware chain executor
+
+### Tasks
+- [ ] Design adapter interface
+- [ ] Implement fetch adapter
+- [ ] Implement Supabase adapter
+- [ ] Implement Firebase adapter
+- [ ] Implement GraphQL adapter
+- [ ] Design middleware interface
+- [ ] Implement middleware chain
+- [ ] Implement auth middleware
+- [ ] Implement retry middleware
+- [ ] Implement cache middleware
+- [ ] Implement logger middleware
+- [ ] Write tests
+
+### Dependencies
+- Phase 3 (Resolvers)
+
+---
+
+## Phase 5: OpenAPI Generation
+
+### Goals
+- Generate OpenAPI spec from schema
+- Generate Postman collection
+- CLI command
+
+### Deliverables
+- OpenAPI 3.0 generator
+- Postman collection generator
+- CLI `generate:openapi` command
+- CLI `generate:postman` command
+
+### Tasks
+- [ ] Implement schema → OpenAPI mapping
+- [ ] Generate response/create/update schemas
+- [ ] Generate paths for CRUD
+- [ ] Generate paths for views
+- [ ] Implement Postman generator
+- [ ] Add CLI commands
+- [ ] Write tests
+
+### Dependencies
+- Phase 1 (Schema DSL)
+
+---
+
+## Phase 6: Compile-Time Elimination
+
+### Goals
+- Remove mock code from production
+- Minimal production runtime
+- Build tool integrations
+
+### Deliverables
+- Babel plugin
+- Vite plugin
+- Webpack plugin
+- Production runtime (~3KB)
+
+### Tasks
+- [ ] Design transformation strategy
+- [ ] Implement Babel plugin
+- [ ] Implement production runtime
+- [ ] Implement Vite plugin
+- [ ] Implement Webpack plugin
+- [ ] Test bundle sizes
+- [ ] Test with various bundlers
+- [ ] Write documentation
+
+### Dependencies
+- Phase 4 (Adapters)
+
+---
+
+## Phase 7: React Bindings
+
+### Goals
+- React hooks for data fetching
+- Provider component
+- DevTools panel
+
+### Deliverables
+- `useData` hook
+- `useMutate` hook
+- `useView` hook
+- `DataLayerProvider` component
+- DevTools panel (development only)
+
+### Tasks
+- [ ] Implement `useData` hook
+- [ ] Implement `useMutate` hook
+- [ ] Implement `useView` hook
+- [ ] Implement provider component
+- [ ] Implement devtools panel
+- [ ] Write tests
+- [ ] Write documentation
+
+### Dependencies
+- Phase 4 (Adapters)
+- @tanstack/react-query
+
+---
+
+## Phase 8: CLI + DevTools
+
+### Goals
+- CLI for code generation
+- Development tools
+
+### Deliverables
+- `schemock generate` command
+- `schemock generate:openapi` command
+- `schemock generate:postman` command
+- Browser devtools extension (stretch)
+
+### Tasks
+- [ ] Implement CLI framework
+- [ ] Implement generate command
+- [ ] Implement generate:openapi command
+- [ ] Implement generate:postman command
+- [ ] (Stretch) Browser extension
+
+### Dependencies
+- Phase 5 (OpenAPI Generation)
+
+---
+
+## Phase 9: Documentation + Examples
+
+### Goals
+- Comprehensive documentation
+- Example projects
+- Getting started guide
+
+### Deliverables
+- Documentation website
+- Getting started guide
+- API reference
+- Example: Basic React app
+- Example: Next.js app
+- Example: Supabase integration
+- Example: Firebase integration
+
+### Tasks
+- [ ] Write getting started guide
+- [ ] Write API reference
+- [ ] Create basic React example
+- [ ] Create Next.js example
+- [ ] Create Supabase example
+- [ ] Create Firebase example
+- [ ] Set up documentation website
+
+### Dependencies
+- All previous phases
+
+---
+
+## MVP Definition
+
+**Minimum Viable Product (Phases 1-3):**
+
+- Schema DSL with field types
+- Mock data generation
+- In-memory persistence
+- Basic relationships
+- React hooks (useData, useMutate)
+
+**MVP Scope:**
+- Single adapter (fetch)
+- No middleware
+- No compile-time elimination
+- Basic documentation
+
+**MVP Timeline:** 6 weeks
+
+---
+
+## Risk Mitigation
+
+| Risk | Impact | Mitigation |
+|------|--------|------------|
+| @mswjs/data limitations | High | Fork if needed, contribute upstream |
+| Bundle size concerns | Medium | Aggressive tree-shaking, lazy loading |
+| TypeScript inference complexity | Medium | Start simple, iterate |
+| Build tool compatibility | Medium | Test early with multiple bundlers |
+
+---
+
+## Success Criteria
+
+### MVP Success
+- [ ] Schema defines types + mocks
+- [ ] CRUD operations work with persistence
+- [ ] Basic relations resolve correctly
+- [ ] React hooks work in dev mode
+
+### v1.0 Success
+- [ ] All adapters functional
+- [ ] Middleware system working
+- [ ] OpenAPI generation accurate
+- [ ] Production build eliminates mock code
+- [ ] <5KB production bundle
+- [ ] Documentation complete
+- [ ] 3+ example projects
+
+---
+
+## Technology Decisions
+
+| Decision | Choice | Rationale |
+|----------|--------|-----------|
+| Persistence | @mswjs/data | Modern, maintained, good DX |
+| Network mocking | MSW | Industry standard |
+| Fake data | faker.js | Most comprehensive |
+| React integration | TanStack Query | Best data fetching library |
+| Build transform | Babel | Widest compatibility |
+| TypeScript | Yes | Type safety is core value prop |
+
+---
+
+## Team Requirements
+
+| Role | Allocation | Focus |
+|------|------------|-------|
+| Lead Developer | 100% | Architecture, core implementation |
+| TypeScript Expert | 50% | Type inference, generics |
+| DevTools Developer | 25% | CLI, browser extension |
+| Technical Writer | 25% | Documentation, examples |
+
+---
+
+## Release Plan
+
+| Version | Contents | Target |
+|---------|----------|--------|
+| 0.1.0 | MVP (Schema + Mocks + Persistence) | Week 6 |
+| 0.2.0 | + Adapters + Middleware | Week 10 |
+| 0.3.0 | + OpenAPI + Compile Elimination | Week 13 |
+| 1.0.0 | Full release | Week 14 |
+
+---
+
+## Next Steps
+
+1. **Validate approach** - Build proof-of-concept with 1 entity
+2. **Set up monorepo** - Package structure, build system
+3. **Implement Phase 1** - Schema DSL
+4. **Gather feedback** - Share with potential users
+5. **Iterate** - Adjust based on feedback
