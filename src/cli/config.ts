@@ -8,7 +8,137 @@
 import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
+import { z } from 'zod';
 import type { SchemockConfig } from './types';
+
+// ============================================================================
+// Zod Schema for Config Validation
+// ============================================================================
+
+/**
+ * Zod schema for FakerMapping validation
+ */
+const FakerMappingSchema = z.object({
+  hint: z.string().optional(),
+  type: z.string().optional(),
+  fieldName: z.instanceof(RegExp).optional(),
+  call: z.string(),
+});
+
+/**
+ * Zod schema for MockAdapterConfig validation
+ */
+const MockAdapterConfigSchema = z.object({
+  seed: z.record(z.string(), z.number()).optional(),
+  delay: z.number().min(0).optional(),
+  fakerSeed: z.number().optional(),
+  persist: z.boolean().optional(),
+  storageKey: z.string().optional(),
+}).strict();
+
+/**
+ * Zod schema for SupabaseAdapterConfig validation
+ */
+const SupabaseAdapterConfigSchema = z.object({
+  tableMap: z.record(z.string(), z.string()).optional(),
+  envPrefix: z.string().optional(),
+}).strict();
+
+/**
+ * Zod schema for FirebaseAdapterConfig validation
+ */
+const FirebaseAdapterConfigSchema = z.object({
+  collectionMap: z.record(z.string(), z.string()).optional(),
+}).strict();
+
+/**
+ * Zod schema for FetchAdapterConfig validation
+ */
+const FetchAdapterConfigSchema = z.object({
+  baseUrl: z.string().url().optional(),
+  endpointPattern: z.string().optional(),
+}).strict();
+
+/**
+ * Zod schema for GraphQLAdapterConfig validation
+ */
+const GraphQLAdapterConfigSchema = z.object({
+  operations: z.object({
+    findOne: z.string().optional(),
+    findMany: z.string().optional(),
+    create: z.string().optional(),
+    update: z.string().optional(),
+    delete: z.string().optional(),
+  }).optional(),
+}).strict();
+
+/**
+ * Zod schema for PGliteAdapterConfig validation
+ */
+const PGliteAdapterConfigSchema = z.object({
+  persistence: z.enum(['memory', 'indexeddb', 'opfs']).optional(),
+  dataDir: z.string().optional(),
+  fakerSeed: z.number().optional(),
+  seed: z.record(z.string(), z.number()).optional(),
+}).strict();
+
+/**
+ * Zod schema for PluralizeConfig validation
+ */
+const PluralizeConfigSchema = z.object({
+  custom: z.record(z.string(), z.string()).optional(),
+}).strict();
+
+/**
+ * Zod schema for complete SchemockConfig validation
+ *
+ * Uses .strict() on nested objects to catch typos in config keys
+ */
+const SchemockConfigSchema = z.object({
+  schemas: z.string().min(1, 'schemas path is required'),
+  output: z.string().min(1, 'output path is required'),
+  adapter: z.enum(['mock', 'supabase', 'firebase', 'fetch', 'graphql', 'pglite']),
+  apiPrefix: z.string(),
+  pluralization: PluralizeConfigSchema.optional(),
+  fakerMappings: z.array(FakerMappingSchema).optional(),
+  adapters: z.object({
+    mock: MockAdapterConfigSchema.optional(),
+    supabase: SupabaseAdapterConfigSchema.optional(),
+    firebase: FirebaseAdapterConfigSchema.optional(),
+    fetch: FetchAdapterConfigSchema.optional(),
+    graphql: GraphQLAdapterConfigSchema.optional(),
+    pglite: PGliteAdapterConfigSchema.optional(),
+  }).optional(),
+}).strict();
+
+/**
+ * Validate configuration object and return typed result
+ *
+ * @param config - Raw config object to validate
+ * @param filePath - Path to config file (for error messages)
+ * @returns Validated SchemockConfig
+ * @throws Error if validation fails with detailed message
+ */
+function validateConfig(config: unknown, filePath: string): SchemockConfig {
+  const result = SchemockConfigSchema.safeParse(config);
+
+  if (!result.success) {
+    const errors = result.error.errors.map((err) => {
+      const path = err.path.join('.');
+      return `  - ${path ? `${path}: ` : ''}${err.message}`;
+    }).join('\n');
+
+    throw new Error(
+      `Invalid configuration in ${filePath}:\n${errors}\n\n` +
+      `Common issues:\n` +
+      `  - Typos in config keys (e.g., 'scemas' instead of 'schemas')\n` +
+      `  - Unknown adapter types\n` +
+      `  - Invalid adapter-specific options`
+    );
+  }
+
+  return result.data as SchemockConfig;
+}
 
 /**
  * Config file names to search for (in order of priority)
@@ -66,27 +196,19 @@ export async function loadConfig(configPath?: string): Promise<SchemockConfig> {
  * Load and parse a config file
  */
 async function loadConfigFile(fullPath: string): Promise<SchemockConfig> {
+  let rawConfig: unknown;
+
   try {
     // For TypeScript files, we need to use tsx or ts-node
     // For now, we'll try dynamic import which works for JS/MJS
     // and compiled TS files
     const module = await import(fullPath);
-    const config = module.default || module;
-
-    // Merge with defaults
-    return {
-      ...DEFAULT_CONFIG,
-      ...config,
-    };
+    rawConfig = module.default || module;
   } catch (error) {
     // If import fails, it might be a TS file that needs compilation
     // Try using tsx if available
     try {
-      const result = loadConfigViaTsx(fullPath);
-      return {
-        ...DEFAULT_CONFIG,
-        ...result,
-      };
+      rawConfig = loadConfigViaTsx(fullPath);
     } catch (tsxError) {
       throw new Error(
         `Failed to load config file: ${fullPath}\n` +
@@ -99,6 +221,15 @@ async function loadConfigFile(fullPath: string): Promise<SchemockConfig> {
       );
     }
   }
+
+  // Merge with defaults first
+  const mergedConfig = {
+    ...DEFAULT_CONFIG,
+    ...rawConfig as Record<string, unknown>,
+  };
+
+  // Validate the merged config using Zod schema
+  return validateConfig(mergedConfig, fullPath);
 }
 
 /**

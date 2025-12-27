@@ -22,24 +22,60 @@ export function escapeSqlString(value: string): string {
  * Map Schemock field types to PostgreSQL types
  */
 export const PG_TYPE_MAP: Record<string, string> = {
+  // String types
   uuid: 'UUID',
   string: 'VARCHAR(255)',
   text: 'TEXT',
   email: 'VARCHAR(255)',
   url: 'TEXT',
+
+  // Numeric types
   int: 'INTEGER',
   integer: 'INTEGER',
   number: 'DOUBLE PRECISION',
   float: 'DOUBLE PRECISION',
+  double: 'DOUBLE PRECISION',
+
+  // BigInt types
+  bigint: 'BIGINT',
+  bigserial: 'BIGSERIAL',
+
+  // Decimal/Money types (precision-safe)
+  decimal: 'DECIMAL',
+  numeric: 'NUMERIC',
+  money: 'MONEY',
+
+  // Binary types
+  bytea: 'BYTEA',
+  binary: 'BYTEA',
+  blob: 'BYTEA',
+
+  // Boolean
   boolean: 'BOOLEAN',
+
+  // Date/time types
   date: 'DATE',
   datetime: 'TIMESTAMPTZ',
+  timestamp: 'TIMESTAMP',
+  timestamptz: 'TIMESTAMPTZ',
+  time: 'TIME',
+  timetz: 'TIMETZ',
+  interval: 'INTERVAL',
+
+  // JSON types
   json: 'JSONB',
   jsonb: 'JSONB',
   array: 'JSONB',
   object: 'JSONB',
+
+  // Reference type
   ref: 'UUID',
   enum: 'VARCHAR(50)',
+
+  // PostGIS types
+  point: 'POINT',
+  geometry: 'GEOMETRY',
+  geography: 'GEOGRAPHY',
 };
 
 /**
