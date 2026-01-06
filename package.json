@@ -1,8 +1,9 @@
 {
   "name": "schemock",
   "version": "0.0.1",
-  "description": "Schema-first mocking for frontend developers. Define once. Mock instantly. Ship faster.",
+  "description": "Fauxend - Schema-first mock backend with full CRUD, React hooks, and instant production adapter switching. Define once. Mock instantly. Ship faster.",
   "keywords": [
+    "fauxend",
     "mock",
     "schema",
     "frontend",
@@ -18,8 +19,13 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": ""
+    "url": "https://github.com/prajyot-tote/schemock.git"
   },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
   "main": "dist/index.js",
   "module": "dist/index.mjs",
   "types": "dist/index.d.ts",
@@ -54,15 +60,10 @@
       "require": "./dist/react/index.js",
       "types": "./dist/react/index.d.ts"
     },
-    "./build/vite": {
-      "import": "./dist/build/vite-plugin.mjs",
-      "require": "./dist/build/vite-plugin.js",
-      "types": "./dist/build/vite-plugin.d.ts"
-    },
-    "./build/webpack": {
-      "import": "./dist/build/webpack-plugin.mjs",
-      "require": "./dist/build/webpack-plugin.js",
-      "types": "./dist/build/webpack-plugin.d.ts"
+    "./cli": {
+      "import": "./dist/cli/index.mjs",
+      "require": "./dist/cli/index.js",
+      "types": "./dist/cli/index.d.ts"
     }
   },
   "bin": {
@@ -84,13 +85,27 @@
     "zod": "^3.0.0"
   },
   "peerDependenciesMeta": {
-    "@faker-js/faker": { "optional": true },
-    "@tanstack/react-query": { "optional": true },
-    "msw": { "optional": true },
-    "react": { "optional": true }
+    "@faker-js/faker": {
+      "optional": true
+    },
+    "@tanstack/react-query": {
+      "optional": true
+    },
+    "msw": {
+      "optional": true
+    },
+    "react": {
+      "optional": true
+    }
   },
   "devDependencies": {
+    "@faker-js/faker": "^10.1.0",
+    "@mswjs/data": "^0.16.2",
+    "@tanstack/react-query": "^5.90.12",
     "@types/node": "^20.0.0",
+    "@types/react": "^19.2.7",
+    "msw": "^2.12.4",
+    "react": "^19.2.3",
     "tsup": "^8.0.0",
     "typescript": "^5.0.0",
     "vitest": "^1.0.0"

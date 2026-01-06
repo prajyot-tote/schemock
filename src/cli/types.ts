@@ -360,6 +360,64 @@ export interface AnalyzedSchema {
 }
 
 // ============================================================================
+// Analyzed Endpoint Types
+// ============================================================================
+
+/**
+ * Analyzed field for endpoint params/body/response
+ */
+export interface AnalyzedEndpointField {
+  /** Field name */
+  name: string;
+  /** Original type */
+  type: string;
+  /** TypeScript type */
+  tsType: string;
+  /** Is required (no default) */
+  required: boolean;
+  /** Has default value */
+  hasDefault: boolean;
+  /** Default value */
+  default?: unknown;
+  /** Is array type */
+  isArray: boolean;
+  /** Is object type */
+  isObject: boolean;
+  /** Nested fields for objects */
+  shape?: AnalyzedEndpointField[];
+  /** Item type for arrays */
+  itemType?: AnalyzedEndpointField;
+  /** Enum values if enum type */
+  enumValues?: string[];
+}
+
+/**
+ * Fully analyzed endpoint with all computed properties
+ */
+export interface AnalyzedEndpoint {
+  /** Original URL path */
+  path: string;
+  /** HTTP method */
+  method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
+  /** Endpoint name (derived from path) */
+  name: string;
+  /** PascalCase name for types */
+  pascalName: string;
+  /** Path parameters extracted from path (e.g., :id -> ['id']) */
+  pathParams: string[];
+  /** Analyzed query/path parameters */
+  params: AnalyzedEndpointField[];
+  /** Analyzed body fields */
+  body: AnalyzedEndpointField[];
+  /** Analyzed response fields */
+  response: AnalyzedEndpointField[];
+  /** Serialized mock resolver function source */
+  mockResolverSource: string;
+  /** Description */
+  description?: string;
+}
+
+// ============================================================================
 // Generate Command Types
 // ============================================================================
 

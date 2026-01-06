@@ -165,8 +165,8 @@ describe('Config Loading Security', () => {
   });
 });
 
-describe('RLS Context Thread Safety', () => {
-  it('should generate AsyncLocalStorage-based context management', async () => {
+describe('RLS Context - Browser Compatible', () => {
+  it('should generate browser-compatible context management', async () => {
     const { generateRLSContextType, getRLSImports } = await import('./generators/shared/rls');
     const { CodeBuilder } = await import('./utils/code-builder');
 
@@ -174,23 +174,24 @@ describe('RLS Context Thread Safety', () => {
     generateRLSContextType(code);
     const generated = code.toString();
 
-    // Should include AsyncLocalStorage usage
-    expect(generated).toContain('AsyncLocalStorage');
-    expect(generated).toContain('rlsContextStorage');
+    // Should use simple global context (browser-compatible)
+    expect(generated).toContain('currentContext');
+    expect(generated).not.toContain('AsyncLocalStorage');
+    expect(generated).not.toContain('async_hooks');
 
     // Should provide runWithContext for proper scoping
     expect(generated).toContain('runWithContext');
     expect(generated).toContain('runWithContextAsync');
 
-    // Should have legacy fallback
-    expect(generated).toContain('legacyContext');
+    // Should have context save/restore in runWithContext
+    expect(generated).toContain('previousContext');
 
-    // getRLSImports should return proper import
+    // getRLSImports should return empty string (no Node.js-only imports)
     const imports = getRLSImports();
-    expect(imports).toBe("import { AsyncLocalStorage } from 'async_hooks';");
+    expect(imports).toBe('');
   });
 
-  it('should generate getContext that checks AsyncLocalStorage first', async () => {
+  it('should generate getContext that returns current context', async () => {
     const { generateRLSContextType } = await import('./generators/shared/rls');
     const { CodeBuilder } = await import('./utils/code-builder');
 
@@ -198,11 +199,7 @@ describe('RLS Context Thread Safety', () => {
     generateRLSContextType(code);
     const generated = code.toString();
 
-    // getContext should check async storage first
-    expect(generated).toContain('rlsContextStorage.getStore()');
-    expect(generated).toContain('if (asyncCtx !== undefined) return asyncCtx');
-
-    // Then fall back to legacy
-    expect(generated).toContain('return legacyContext');
+    // getContext should return the current context directly
+    expect(generated).toContain('return currentContext');
   });
 });

@@ -12,19 +12,19 @@ import { CodeBuilder } from '../../utils/code-builder';
 /**
  * Get the import statement needed for RLS context functionality
  *
- * @returns Import statement for AsyncLocalStorage
+ * @returns Empty string - no imports needed for browser-compatible RLS context
  */
 export function getRLSImports(): string {
-  return "import { AsyncLocalStorage } from 'async_hooks';";
+  // No longer importing async_hooks - using browser-compatible context storage
+  return '';
 }
 
 /**
  * Generate generic RLS context type definition
  *
- * Uses AsyncLocalStorage for thread-safe request-scoped context.
- * This prevents context leakage between concurrent async operations.
- *
- * NOTE: Caller must add the import from getRLSImports() at the top of the file.
+ * Uses a simple global context that works in both browsers and Node.js.
+ * This is appropriate for the mock adapter since browsers are single-threaded
+ * and the mock adapter is for development purposes.
  */
 export function generateRLSContextType(code: CodeBuilder): void {
   code.comment('Row-Level Security Context (generic key-value)');
@@ -34,24 +34,20 @@ export function generateRLSContextType(code: CodeBuilder): void {
   code.line();
 
   code.comment('=============================================================================');
-  code.comment('Thread-Safe RLS Context using AsyncLocalStorage');
+  code.comment('Browser-Compatible RLS Context Storage');
   code.comment('');
-  code.comment('AsyncLocalStorage provides request-scoped context that is safe for concurrent');
-  code.comment('async operations. Each async execution context gets its own isolated context,');
-  code.comment('preventing context leakage between requests.');
+  code.comment('Uses a simple global context that works in both browsers and Node.js.');
+  code.comment('This is appropriate for development/mock scenarios where concurrent');
+  code.comment('request isolation is not required.');
   code.comment('=============================================================================');
   code.line();
 
-  code.comment('Create storage for RLS context - each async context gets isolated storage');
-  code.line('const rlsContextStorage = new AsyncLocalStorage<RLSContext | null>();');
-  code.line();
-
-  code.comment('Legacy global fallback for environments without AsyncLocalStorage support');
-  code.line('let legacyContext: RLSContext | null = null;');
+  code.comment('Global context storage - works in browsers and Node.js');
+  code.line('let currentContext: RLSContext | null = null;');
   code.line();
 
   code.multiDocComment([
-    'Set RLS context for the current async execution context.',
+    'Set RLS context for the current execution.',
     '',
     '@param ctx - The RLS context to set, or null to clear',
     '',
@@ -65,29 +61,23 @@ export function generateRLSContextType(code: CodeBuilder): void {
     '```',
   ]);
   code.block('export function setContext(ctx: RLSContext | null): void {', () => {
-    code.comment('Store in legacy global for backward compatibility');
-    code.line('legacyContext = ctx;');
+    code.line('currentContext = ctx;');
   });
   code.line();
 
   code.multiDocComment([
-    'Get RLS context for the current async execution context.',
+    'Get RLS context for the current execution.',
     '',
     '@returns The current RLS context, or null if not set',
   ]);
   code.block('export function getContext(): RLSContext | null {', () => {
-    code.comment('Try AsyncLocalStorage first (thread-safe)');
-    code.line('const asyncCtx = rlsContextStorage.getStore();');
-    code.line('if (asyncCtx !== undefined) return asyncCtx;');
-    code.line();
-    code.comment('Fall back to legacy global context');
-    code.line('return legacyContext;');
+    code.line('return currentContext;');
   });
   code.line();
 
   code.multiDocComment([
-    'Run a function with RLS context bound to the async execution context.',
-    'This is the recommended way to set context for request handlers.',
+    'Run a function with RLS context.',
+    'Context is set before the function runs and restored after.',
     '',
     '@param ctx - The RLS context to use',
     '@param fn - The function to run with the context',
@@ -95,22 +85,22 @@ export function generateRLSContextType(code: CodeBuilder): void {
     '',
     '@example',
     '```typescript',
-    '// Express middleware',
-    'app.use((req, res, next) => {',
-    "  const ctx = { userId: req.user.id, role: req.user.role };",
-    '  runWithContext(ctx, () => {',
-    '    next();',
-    '  });',
-    '});',
-    '',
-    '// Async function',
-    "const result = await runWithContext({ userId: '123' }, async () => {",
-    '  return await api.posts.list();',
+    '// Run with context',
+    "const result = runWithContext({ userId: '123' }, () => {",
+    '  return api.posts.list();',
     '});',
     '```',
   ]);
   code.block('export function runWithContext<T>(ctx: RLSContext | null, fn: () => T): T {', () => {
-    code.line('return rlsContextStorage.run(ctx, fn);');
+    code.line('const previousContext = currentContext;');
+    code.line('currentContext = ctx;');
+    code.block('try {', () => {
+      code.line('return fn();');
+    }, '} finally {');
+    code.indent();
+    code.line('currentContext = previousContext;');
+    code.dedent();
+    code.line('}');
   });
   code.line();
 
@@ -122,7 +112,15 @@ export function generateRLSContextType(code: CodeBuilder): void {
     '@returns Promise resolving to the result of the function',
   ]);
   code.block('export async function runWithContextAsync<T>(ctx: RLSContext | null, fn: () => Promise<T>): Promise<T> {', () => {
-    code.line('return rlsContextStorage.run(ctx, fn);');
+    code.line('const previousContext = currentContext;');
+    code.line('currentContext = ctx;');
+    code.block('try {', () => {
+      code.line('return await fn();');
+    }, '} finally {');
+    code.indent();
+    code.line('currentContext = previousContext;');
+    code.dedent();
+    code.line('}');
   });
   code.line();
 }

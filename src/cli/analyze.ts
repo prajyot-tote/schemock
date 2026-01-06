@@ -539,7 +539,7 @@ function analyzeRelation(
     name,
     type: rel.type,
     target: rel.target,
-    targetPascal: toPascalCase(rel.target),
+    targetPascal: toPascalCase(singularize(rel.target)),
     foreignKey,
     eager: rel.eager ?? false,
     inferred: fkInferred,  // Track whether FK was inferred vs explicit

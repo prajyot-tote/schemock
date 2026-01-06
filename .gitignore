@@ -28,3 +28,9 @@ coverage/
 
 # Generated
 *.generated.ts
+src/generated/
+
+# Claude Code sessions (local only)
+.claude/sessions/
+.claude/plans/
+.claude/settings.local.json

@@ -2,6 +2,19 @@
 
 > Schema-first mocking for frontend developers
 
+## CRITICAL: Do Not Modify Plugin Code
+
+**NEVER modify files in `~/.claude/plugins/cache/`** - these are cached plugin files.
+
+If I ask to change plugin functionality:
+1. **STOP** and alert me
+2. Point me to the source repo: `/Users/prajyot/Documents/Work/Matt/claude-plugins/`
+3. Changes should be made in source, then versioned and published
+
+This applies to ALL plugin paths:
+- `~/.claude/plugins/cache/automatewithus-plugins/**`
+- Any other plugin cache directories
+
 ## Project Overview
 
 Schemock is a TypeScript library that enables frontend developers to work independently with realistic mock data while maintaining seamless transitions to production backends.

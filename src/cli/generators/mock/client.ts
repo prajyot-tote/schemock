@@ -31,7 +31,7 @@ export function generateMockClient(schemas: AnalyzedSchema[]): string {
   code.line("import { db } from './db';");
   code.line("import type * as Types from './types';");
 
-  // Add AsyncLocalStorage import for thread-safe RLS context
+  // Add RLS context imports (browser-compatible)
   if (schemasWithRLS) {
     code.line(getRLSImports());
   }
