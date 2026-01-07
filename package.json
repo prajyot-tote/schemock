@@ -1,6 +1,6 @@
 {
   "name": "schemock",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "description": "Fauxend - Schema-first mock backend with full CRUD, React hooks, and instant production adapter switching. Define once. Mock instantly. Ship faster.",
   "keywords": [
     "fauxend",
