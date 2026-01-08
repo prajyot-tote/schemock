@@ -1,0 +1,39 @@
+# Source files (dist is published)
+src/
+tsup.config.ts
+tsconfig.json
+
+# Development
+.claude/
+.git/
+.gitignore
+.eslintrc*
+.prettier*
+*.log
+
+# Test files
+*.test.ts
+*.spec.ts
+__tests__/
+coverage/
+vitest.config.*
+
+# Generated files (for development only)
+src/generated/
+
+# Config files
+schemock.config.ts
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Misc
+*.tgz
+.env*

@@ -1,25 +1,32 @@
 {
   "name": "schemock",
-  "version": "0.0.2",
-  "description": "Fauxend - Schema-first mock backend with full CRUD, React hooks, and instant production adapter switching. Define once. Mock instantly. Ship faster.",
+  "version": "0.0.3-alpha.1",
+  "description": "Schema-first code generation for frontend developers. Generate TypeScript types, API clients, React hooks, Next.js routes, and Node.js handlers from a single schema.",
   "keywords": [
-    "fauxend",
-    "mock",
     "schema",
-    "frontend",
+    "codegen",
+    "mock",
     "typescript",
     "api",
-    "testing",
-    "development",
-    "openapi",
-    "fake-data",
-    "msw"
+    "react",
+    "nextjs",
+    "express",
+    "supabase",
+    "frontend",
+    "backend",
+    "code-generation",
+    "crud",
+    "rest-api"
   ],
-  "author": "",
+  "author": "Prajyot Tote",
   "license": "MIT",
+  "homepage": "https://github.com/prajyot-tote/schemock#readme",
+  "bugs": {
+    "url": "https://github.com/prajyot-tote/schemock/issues"
+  },
   "repository": {
     "type": "git",
-    "url": "https://github.com/prajyot-tote/schemock.git"
+    "url": "git+https://github.com/prajyot-tote/schemock.git"
   },
   "files": [
     "dist",
@@ -31,39 +38,39 @@
   "types": "dist/index.d.ts",
   "exports": {
     ".": {
+      "types": "./dist/index.d.ts",
       "import": "./dist/index.mjs",
-      "require": "./dist/index.js",
-      "types": "./dist/index.d.ts"
+      "require": "./dist/index.js"
     },
     "./schema": {
+      "types": "./dist/schema/index.d.ts",
       "import": "./dist/schema/index.mjs",
-      "require": "./dist/schema/index.js",
-      "types": "./dist/schema/index.d.ts"
+      "require": "./dist/schema/index.js"
     },
     "./runtime": {
+      "types": "./dist/runtime/index.d.ts",
       "import": "./dist/runtime/index.mjs",
-      "require": "./dist/runtime/index.js",
-      "types": "./dist/runtime/index.d.ts"
+      "require": "./dist/runtime/index.js"
     },
     "./adapters": {
+      "types": "./dist/adapters/index.d.ts",
       "import": "./dist/adapters/index.mjs",
-      "require": "./dist/adapters/index.js",
-      "types": "./dist/adapters/index.d.ts"
+      "require": "./dist/adapters/index.js"
     },
     "./middleware": {
+      "types": "./dist/middleware/index.d.ts",
       "import": "./dist/middleware/index.mjs",
-      "require": "./dist/middleware/index.js",
-      "types": "./dist/middleware/index.d.ts"
+      "require": "./dist/middleware/index.js"
     },
     "./react": {
+      "types": "./dist/react/index.d.ts",
       "import": "./dist/react/index.mjs",
-      "require": "./dist/react/index.js",
-      "types": "./dist/react/index.d.ts"
+      "require": "./dist/react/index.js"
     },
     "./cli": {
+      "types": "./dist/cli/index.d.ts",
       "import": "./dist/cli/index.mjs",
-      "require": "./dist/cli/index.js",
-      "types": "./dist/cli/index.d.ts"
+      "require": "./dist/cli/index.js"
     }
   },
   "bin": {
