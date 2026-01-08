@@ -10,6 +10,7 @@ Schemock flips the traditional API development workflow. Instead of waiting for 
 
 - **Instant working mocks** - Full CRUD with persistence using [@mswjs/data](https://github.com/mswjs/data) or PGlite
 - **Type-safe API client** - Generated TypeScript types, client, and React hooks
+- **Multi-target generation** - Generate client SDKs, Next.js API routes, and Node.js handlers from one schema
 - **Multiple adapters** - Switch between Mock, Supabase, Firebase, Fetch, or GraphQL
 - **SQL generation** - Export PostgreSQL schemas with RLS, indexes, and functions
 - **OpenAPI export** - Generate specs to hand off to backend teams
@@ -95,9 +96,23 @@ npx schemock generate [options]
   --adapter, -a <type>    Adapter: mock|supabase|firebase|fetch|graphql|pglite
   --output, -o <dir>      Output directory (default: ./src/generated)
   --config, -c <file>     Config file path
+  --only <entities>       Only generate for these entities (comma-separated)
+  --exclude <entities>    Exclude these entities (comma-separated)
   --watch, -w             Watch mode - regenerate on changes
   --dry-run               Preview without writing files
   --verbose, -v           Verbose output
+```
+
+**Entity filtering examples:**
+```bash
+# Generate only User and Post entities
+npx schemock generate --only user,post
+
+# Generate everything except Audit logs
+npx schemock generate --exclude audit
+
+# Combine with other options
+npx schemock generate --adapter supabase --only user,post --verbose
 ```
 
 ### SQL Generation
@@ -547,6 +562,164 @@ export default defineConfig({
 });
 ```
 
+## Multi-Target Generation
+
+Generate multiple outputs from a single schema - client SDKs, API routes, and server handlers all at once:
+
+```typescript
+// schemock.config.ts
+export default {
+  schemas: './src/schemas/**/*.ts',
+  output: './src/generated',
+
+  targets: [
+    // Supabase client for direct database access
+    {
+      name: 'supabase-client',
+      type: 'supabase',
+      output: './src/generated/supabase',
+    },
+    // Next.js API routes (App Router)
+    {
+      name: 'nextjs-api',
+      type: 'nextjs-api',
+      output: './src/app/api',
+      backend: 'supabase',
+      middleware: {
+        auth: { provider: 'supabase-auth' },
+        validation: true,
+      },
+    },
+    // Node.js/Express handlers
+    {
+      name: 'node-server',
+      type: 'node-handlers',
+      output: './src/generated/node',
+      backend: 'supabase',
+      middleware: {
+        auth: { provider: 'jwt', secretEnvVar: 'JWT_SECRET' },
+        validation: true,
+      },
+    },
+  ],
+};
+```
+
+### Available Target Types
+
+| Type | Description | Output |
+|------|-------------|--------|
+| `mock` | In-memory mock database | Client, handlers, hooks |
+| `supabase` | Supabase client SDK | Client, types, hooks |
+| `firebase` | Firebase/Firestore client | Client, types, hooks |
+| `fetch` | Generic REST client | Client, types, hooks |
+| `pglite` | PGlite browser database | Client, db, seed |
+| `nextjs-api` | Next.js App Router routes | Route handlers, middleware |
+| `node-handlers` | Express-compatible handlers | Handlers, router, middleware |
+
+### Entity Filtering
+
+Control which entities are generated per target:
+
+```typescript
+targets: [
+  {
+    name: 'public-api',
+    type: 'nextjs-api',
+    output: './src/app/api',
+    // Only generate routes for these entities
+    entities: ['user', 'post'],
+  },
+  {
+    name: 'admin-api',
+    type: 'node-handlers',
+    output: './src/admin/api',
+    // Generate all entities except these
+    excludeEntities: ['audit', 'log'],
+  },
+]
+```
+
+CLI overrides for quick filtering:
+
+```bash
+# Only generate for specific entities (applies to all targets)
+npx schemock generate --only user,post
+
+# Exclude entities from generation
+npx schemock generate --exclude audit,log
+```
+
+**Note:** Types always include all entities to preserve relations (e.g., `User.posts`). Only CRUD operations/routes are filtered.
+
+### Generated Server Files
+
+**Next.js API Routes** (`nextjs-api` target):
+```
+src/app/api/
+├── _lib/
+│   ├── types.ts      # TypeScript types
+│   ├── auth.ts       # Auth middleware (Supabase Auth)
+│   ├── validate.ts   # Validation middleware
+│   └── supabase.ts   # Supabase client
+├── users/
+│   ├── route.ts      # GET /api/users, POST /api/users
+│   └── [id]/
+│       └── route.ts  # GET/PUT/DELETE /api/users/:id
+└── posts/
+    ├── route.ts
+    └── [id]/route.ts
+```
+
+**Node.js Handlers** (`node-handlers` target):
+```
+src/generated/node/
+├── types.ts           # TypeScript types
+├── db.ts              # Database client
+├── router.ts          # Express router with all routes
+├── index.ts           # Barrel exports
+├── middleware/
+│   ├── auth.ts        # JWT authentication
+│   └── validate.ts    # Request validation
+└── handlers/
+    ├── users.ts       # User CRUD handlers
+    └── posts.ts       # Post CRUD handlers
+```
+
+### Using Generated Node Handlers
+
+```typescript
+import express from 'express';
+import { router } from './generated/node';
+
+const app = express();
+app.use('/api', router);
+app.listen(3000);
+```
+
+### Auto-Generated Middleware
+
+**Authentication** (from target config):
+- `supabase-auth`: Validates Supabase JWT tokens
+- `jwt`: Standard JWT validation with configurable secret
+- `nextauth`: NextAuth.js session validation
+- `clerk`: Clerk authentication
+
+**Validation** (from schema field definitions):
+```typescript
+// Schema
+field.string({ min: 2, max: 100 })
+field.email()
+field.enum(['admin', 'user'])
+
+// Generated validation
+function validateUser(data) {
+  if (name.length < 2 || name.length > 100) { /* error */ }
+  if (!isValidEmail(email)) { /* error */ }
+  if (!['admin', 'user'].includes(role)) { /* error */ }
+}
+```
+
 ## Generated Files
 
 Running `npx schemock generate` produces:
@@ -622,7 +795,14 @@ import { defineConfig } from 'schemock/cli';
 
 ## Status
 
-v0.0.1 - Initial release. Core features are implemented and functional.
+**v0.0.2** - Multi-target generation with selective entity filtering.
+
+- Multi-target code generation (client, API routes, server handlers)
+- Next.js App Router and Node.js/Express targets
+- Per-target entity filtering
+- Auto-generated authentication and validation middleware
+
+**v0.0.1** - Initial release. Core features implemented.
 
 ## License
 
