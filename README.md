@@ -795,14 +795,7 @@ import { defineConfig } from 'schemock/cli';
 
 ## Status
 
-**v0.0.2** - Multi-target generation with selective entity filtering.
-
-- Multi-target code generation (client, API routes, server handlers)
-- Next.js App Router and Node.js/Express targets
-- Per-target entity filtering
-- Auto-generated authentication and validation middleware
-
-**v0.0.1** - Initial release. Core features implemented.
+🚧 **In Development** - This project is under active development. APIs may change.
 
 ## License
 
