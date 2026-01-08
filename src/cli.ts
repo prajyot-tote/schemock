@@ -21,6 +21,7 @@ interface CLIOptions {
   combined?: boolean;
   target?: 'postgres' | 'supabase' | 'pglite';
   only?: string[];
+  exclude?: string[];
   readme?: boolean;
 }
 
@@ -62,6 +63,8 @@ function parseArgs(args: string[]): { command: string; options: CLIOptions; posi
       options.target = args[++i] as 'postgres' | 'supabase' | 'pglite';
     } else if (arg === '--only') {
       options.only = args[++i].split(',');
+    } else if (arg === '--exclude') {
+      options.exclude = args[++i].split(',');
     } else if (arg === '--readme') {
       options.readme = true;
     } else if (!arg.startsWith('-')) {
@@ -97,6 +100,10 @@ Generate Options:
   --adapter, -a <type>    Adapter type: mock|supabase|firebase|fetch|graphql (default: mock)
   --output, -o <dir>      Output directory (default: ./src/generated)
   --config, -c <file>     Config file path (default: ./schemock.config.ts)
+  --only <entities>       Only generate for these entities (comma-separated)
+                          Applies to ALL targets, overrides config
+  --exclude <entities>    Exclude these entities (comma-separated)
+                          Applies to ALL targets, overrides config
   --watch, -w             Watch mode - regenerate on schema changes
   --dry-run               Show what would be generated without writing files
   --verbose, -v           Verbose output
@@ -119,11 +126,19 @@ Examples:
   schemock generate
   schemock generate --adapter mock --output ./src/api
   schemock generate --adapter supabase
+  schemock generate --only user,post          # Only generate User and Post
+  schemock generate --exclude comment         # Generate all except Comment
   schemock generate:sql --output ./sql --readme
   schemock generate:sql --target supabase --combined
   schemock generate:sql --only tables,indexes,rls
   schemock generate:openapi --output api.yaml --format yaml
   schemock generate:postman --output collection.json
+
+Entity Filtering (in config):
+  targets: [
+    { name: 'api', type: 'nextjs-api', entities: ['user', 'post'] },
+    { name: 'node', type: 'node-handlers', excludeEntities: ['audit'] },
+  ]
 `);
 }
 
@@ -275,6 +290,8 @@ async function generateCommand(options: CLIOptions): Promise<void> {
     watch: options.watch,
     dryRun: options.dryRun,
     verbose: options.verbose,
+    only: options.only,
+    exclude: options.exclude,
   });
 }
 

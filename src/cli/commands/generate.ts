@@ -32,6 +32,9 @@ import { generateFetchClient } from '../generators/fetch/client';
 import { generatePGliteDb, generatePGliteClient, generatePGliteSeed } from '../generators/pglite';
 import { generateHooks } from '../generators/hooks';
 
+// Multi-target generation
+import { generateAllTargets, legacyConfigToTarget } from '../generators/target-registry';
+
 /**
  * Main generate command
  *
@@ -42,11 +45,6 @@ export async function generate(options: GenerateOptions): Promise<void> {
 
   // 1. Load config
   const config = await loadConfig(options.config);
-  const adapter = (options.adapter || config.adapter || 'mock') as SchemockConfig['adapter'];
-  const outputDir = options.output || config.output || './src/generated';
-
-  console.log(`  Adapter: ${adapter}`);
-  console.log(`  Output:  ${outputDir}\n`);
 
   // 2. Discover schemas and endpoints
   console.log('📦 Discovering schemas...');
@@ -57,7 +55,8 @@ export async function generate(options: GenerateOptions): Promise<void> {
   }
   console.log(`   Total: ${schemas.length} schemas, ${endpoints.length} endpoints\n`);
 
-  // 3. Analyze schemas
+  // 3. Analyze schemas (use default adapter for analysis, targets can override)
+  const adapter = (options.adapter || config.adapter || 'mock') as SchemockConfig['adapter'];
   const analyzed = analyzeSchemas(schemas, { ...config, adapter });
 
   // 4. Analyze endpoints
@@ -80,7 +79,67 @@ export async function generate(options: GenerateOptions): Promise<void> {
     console.log();
   }
 
-  // 4. Create output directory
+  // 5. Apply CLI-level entity filtering if provided
+  let effectiveTargets = config.targets;
+  if (options.only || options.exclude) {
+    console.log('🔧 Applying CLI entity filters:');
+    if (options.only) {
+      console.log(`   --only: ${options.only.join(', ')}`);
+    }
+    if (options.exclude) {
+      console.log(`   --exclude: ${options.exclude.join(', ')}`);
+    }
+    console.log('');
+
+    // If we have targets, apply CLI filters to each target
+    if (config.targets && config.targets.length > 0) {
+      effectiveTargets = config.targets.map((target) => ({
+        ...target,
+        // CLI --only overrides target.entities
+        entities: options.only || target.entities,
+        // CLI --exclude adds to target.excludeEntities
+        excludeEntities: options.exclude
+          ? [...(target.excludeEntities || []), ...options.exclude]
+          : target.excludeEntities,
+      }));
+    }
+  }
+
+  // 6. Check for multi-target configuration
+  if (effectiveTargets && effectiveTargets.length > 0) {
+    console.log(`🎯 Multi-target generation mode (${effectiveTargets.length} targets)\n`);
+
+    const results = await generateAllTargets(
+      effectiveTargets,
+      analyzed,
+      analyzedEndpoints,
+      config,
+      options
+    );
+
+    // Summary
+    const successCount = results.filter((r) => r.success).length;
+    const failCount = results.filter((r) => !r.success).length;
+
+    console.log('\n📊 Generation Summary:');
+    console.log(`   ✓ ${successCount} targets succeeded`);
+    if (failCount > 0) {
+      console.log(`   ✗ ${failCount} targets failed`);
+      for (const result of results.filter((r) => !r.success)) {
+        console.log(`      - ${result.target.name}: ${result.error?.message}`);
+      }
+    }
+
+    console.log('\n✅ Multi-target generation complete\n');
+    return;
+  }
+
+  // Legacy single-target mode
+  const outputDir = options.output || config.output || './src/generated';
+  console.log(`  Adapter: ${adapter}`);
+  console.log(`  Output:  ${outputDir}\n`);
+
+  // Create output directory
   if (!options.dryRun) {
     await mkdir(outputDir, { recursive: true });
   }

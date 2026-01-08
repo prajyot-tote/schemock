@@ -100,6 +100,81 @@ export interface PGliteAdapterConfig {
   seed?: Record<string, number>;
 }
 
+// ============================================================================
+// Multi-Target Generation Types
+// ============================================================================
+
+/**
+ * Auth provider configuration for middleware generation
+ */
+export interface AuthProviderConfig {
+  /** Auth provider type */
+  provider: 'supabase-auth' | 'jwt' | 'nextauth' | 'clerk' | 'custom';
+  /** Secret key env variable (for JWT) */
+  secretEnvVar?: string;
+  /** Custom auth validation function path (for custom provider) */
+  customHandler?: string;
+}
+
+/**
+ * Middleware configuration for a target
+ */
+export interface TargetMiddlewareConfig {
+  /** Middleware chain order */
+  chain?: string[];
+  /** Auth configuration */
+  auth?: AuthProviderConfig;
+  /** Enable validation middleware generation from schema */
+  validation?: boolean;
+  /** Rate limiting configuration */
+  rateLimit?: {
+    /** Requests per window */
+    max: number;
+    /** Window duration in ms */
+    windowMs: number;
+  };
+}
+
+/**
+ * Generation target types
+ */
+export type TargetType =
+  | 'mock'
+  | 'supabase'
+  | 'firebase'
+  | 'fetch'
+  | 'graphql'
+  | 'pglite'
+  | 'nextjs-api'
+  | 'nextjs-edge'
+  | 'express'
+  | 'hono'
+  | 'node-handlers';
+
+/**
+ * Configuration for a single generation target
+ */
+export interface GenerationTarget {
+  /** Unique name for this target */
+  name: string;
+  /** Target type */
+  type: TargetType;
+  /** Output directory for this target */
+  output: string;
+  /** Which entities to include (default: all) */
+  entities?: string[];
+  /** Which entities to exclude */
+  excludeEntities?: string[];
+  /** Backend to use for server targets (e.g., nextjs-api uses supabase under the hood) */
+  backend?: 'supabase' | 'firebase' | 'pglite' | 'fetch';
+  /** Middleware configuration for this target */
+  middleware?: TargetMiddlewareConfig;
+  /** Path to custom hooks file for lifecycle hooks */
+  hooks?: string;
+  /** Target-specific options */
+  options?: Record<string, unknown>;
+}
+
 /**
  * Pluralization configuration
  */
@@ -114,9 +189,9 @@ export interface PluralizeConfig {
 export interface SchemockConfig {
   /** Schema discovery glob pattern */
   schemas: string;
-  /** Output directory */
+  /** Output directory (used when targets is not specified) */
   output: string;
-  /** Default adapter type */
+  /** Default adapter type (used when targets is not specified) */
   adapter: 'mock' | 'supabase' | 'firebase' | 'fetch' | 'graphql' | 'pglite';
   /** API prefix */
   apiPrefix: string;
@@ -133,6 +208,12 @@ export interface SchemockConfig {
     graphql?: GraphQLAdapterConfig;
     pglite?: PGliteAdapterConfig;
   };
+  /**
+   * Multi-target generation configuration.
+   * When specified, generates multiple outputs from the same schema.
+   * Each target can have its own output directory, entity selection, and middleware config.
+   */
+  targets?: GenerationTarget[];
 }
 
 // ============================================================================
@@ -437,6 +518,10 @@ export interface GenerateOptions {
   dryRun?: boolean;
   /** Verbose output */
   verbose?: boolean;
+  /** Only generate for these entities (applies to all targets) */
+  only?: string[];
+  /** Exclude these entities (applies to all targets) */
+  exclude?: string[];
 }
 
 /**

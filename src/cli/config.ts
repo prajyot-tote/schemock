@@ -90,6 +90,55 @@ const PluralizeConfigSchema = z.object({
 }).strict();
 
 /**
+ * Zod schema for AuthProviderConfig validation
+ */
+const AuthProviderConfigSchema = z.object({
+  provider: z.enum(['supabase-auth', 'jwt', 'nextauth', 'clerk', 'custom']),
+  secretEnvVar: z.string().optional(),
+  customHandler: z.string().optional(),
+}).strict();
+
+/**
+ * Zod schema for TargetMiddlewareConfig validation
+ */
+const TargetMiddlewareConfigSchema = z.object({
+  chain: z.array(z.string()).optional(),
+  auth: AuthProviderConfigSchema.optional(),
+  validation: z.boolean().optional(),
+  rateLimit: z.object({
+    max: z.number().positive(),
+    windowMs: z.number().positive(),
+  }).optional(),
+}).strict();
+
+/**
+ * Zod schema for GenerationTarget validation
+ */
+const GenerationTargetSchema = z.object({
+  name: z.string().min(1, 'target name is required'),
+  type: z.enum([
+    'mock',
+    'supabase',
+    'firebase',
+    'fetch',
+    'graphql',
+    'pglite',
+    'nextjs-api',
+    'nextjs-edge',
+    'express',
+    'hono',
+    'node-handlers',
+  ]),
+  output: z.string().min(1, 'target output path is required'),
+  entities: z.array(z.string()).optional(),
+  excludeEntities: z.array(z.string()).optional(),
+  backend: z.enum(['supabase', 'firebase', 'pglite', 'fetch']).optional(),
+  middleware: TargetMiddlewareConfigSchema.optional(),
+  hooks: z.string().optional(),
+  options: z.record(z.string(), z.unknown()).optional(),
+}).strict();
+
+/**
  * Zod schema for complete SchemockConfig validation
  *
  * Uses .strict() on nested objects to catch typos in config keys
@@ -109,6 +158,7 @@ const SchemockConfigSchema = z.object({
     graphql: GraphQLAdapterConfigSchema.optional(),
     pglite: PGliteAdapterConfigSchema.optional(),
   }).optional(),
+  targets: z.array(GenerationTargetSchema).optional(),
 }).strict();
 
 /**
