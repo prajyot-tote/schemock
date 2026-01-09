@@ -652,6 +652,104 @@ npx schemock generate --exclude audit,log
 
 **Note:** Types always include all entities to preserve relations (e.g., `User.posts`). Only CRUD operations/routes are filtered.
 
+### Entity Tagging
+
+Tags provide flexible, freeform categorization for filtering entities across targets. Unlike `entities`/`excludeEntities` which use explicit names, tags let you organize schemas by domain, access level, or any custom taxonomy.
+
+**Adding tags to schemas:**
+
+```typescript
+const User = defineData('user', {
+  id: field.uuid(),
+  email: field.email(),
+}, {
+  tags: ['auth', 'public', 'core'],
+  module: 'identity',
+  group: 'public',
+});
+
+const AuditLog = defineData('auditLog', {
+  id: field.uuid(),
+  action: field.string(),
+}, {
+  tags: ['internal', 'compliance'],
+  module: 'security',
+  group: 'internal',
+});
+```
+
+**Filtering by tags in targets:**
+
+```typescript
+targets: [
+  {
+    name: 'public-api',
+    type: 'nextjs-api',
+    output: './src/app/api/public',
+    tags: ['public'],           // Include entities with 'public' tag
+    excludeTags: ['internal'],  // Exclude entities with 'internal' tag
+  },
+  {
+    name: 'admin-dashboard',
+    type: 'mock',
+    output: './src/generated/admin',
+    module: 'security',         // Only entities in 'security' module
+  },
+  {
+    name: 'auth-service',
+    type: 'node-handlers',
+    output: './src/auth/handlers',
+    tags: ['auth'],
+    group: 'public',
+  },
+]
+```
+
+#### Common Tagging Patterns
+
+Tags are freeform strings - use whatever fits your project. Here are patterns others find useful:
+
+**By access level:**
+```typescript
+tags: ['public']      // Exposed to external clients
+tags: ['internal']    // Internal services only
+tags: ['admin-only']  // Admin dashboard only
+```
+
+**By feature area:**
+```typescript
+tags: ['auth']        // Authentication/authorization
+tags: ['billing']     // Payment and subscriptions
+tags: ['content']     // User-generated content
+tags: ['analytics']   // Metrics and reporting
+```
+
+**By lifecycle:**
+```typescript
+tags: ['stable']       // Production-ready
+tags: ['experimental'] // Beta features
+tags: ['deprecated']   // Scheduled for removal
+```
+
+**By team ownership:**
+```typescript
+tags: ['team-platform']  // Platform team owns this
+tags: ['team-growth']    // Growth team owns this
+```
+
+**Combined example:**
+```typescript
+const Payment = defineData('payment', { /* ... */ }, {
+  tags: ['billing', 'internal', 'stable'],
+  module: 'billing',
+  group: 'internal',
+  metadata: {
+    owner: 'payments-team',
+    pii: true,
+  },
+});
+```
+
 ### Generated Server Files
 
 **Next.js API Routes** (`nextjs-api` target):
