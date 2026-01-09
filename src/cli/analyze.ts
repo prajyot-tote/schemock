@@ -263,6 +263,12 @@ function analyzeSchema(
     indexes: [], // Will be populated after fields analysis
     rpc: [], // Will be populated after RPC analysis
 
+    // Entity Organization & Tagging
+    tags: schema.tags ?? [],
+    module: schema.module,
+    group: schema.group,
+    metadata: schema.metadata,
+
     original: schema,
   };
 

@@ -464,6 +464,71 @@ export interface EntityOptions<T = unknown> {
   indexes?: IndexConfig[];
   /** RPC/Stored procedures related to this entity */
   rpc?: Record<string, RPCConfig>;
+
+  // ============================================================================
+  // Entity Organization & Tagging
+  // ============================================================================
+
+  /**
+   * Tags for entity classification and filtering.
+   * Use tags to group entities for selective code generation.
+   *
+   * @example
+   * ```typescript
+   * const User = defineData('user', { ... }, {
+   *   tags: ['auth', 'public', 'core'],
+   * });
+   * ```
+   */
+  tags?: string[];
+
+  /**
+   * Module/domain grouping for the entity.
+   * Use modules to organize entities by business domain.
+   *
+   * @example
+   * ```typescript
+   * const User = defineData('user', { ... }, {
+   *   module: 'identity',
+   * });
+   * const Payment = defineData('payment', { ... }, {
+   *   module: 'billing',
+   * });
+   * ```
+   */
+  module?: string;
+
+  /**
+   * Logical grouping for the entity (e.g., access level or visibility).
+   *
+   * @example
+   * ```typescript
+   * const User = defineData('user', { ... }, {
+   *   group: 'public',
+   * });
+   * const AuditLog = defineData('auditLog', { ... }, {
+   *   group: 'internal',
+   * });
+   * ```
+   */
+  group?: string;
+
+  /**
+   * Extensible metadata for custom properties.
+   * Use this for any additional organization data not covered by tags/module/group.
+   *
+   * @example
+   * ```typescript
+   * const User = defineData('user', { ... }, {
+   *   metadata: {
+   *     owner: 'auth-team',
+   *     priority: 'high',
+   *     deprecated: false,
+   *   },
+   * });
+   * ```
+   */
+  metadata?: Record<string, unknown>;
 }
 
 /**
@@ -624,6 +689,17 @@ export interface EntitySchema<T = unknown> {
   indexes?: IndexConfig[];
   /** RPC/Stored procedures related to this entity */
   rpc?: Record<string, RPCConfig>;
+
+  // Entity Organization & Tagging
+  /** Tags for entity classification and filtering */
+  tags?: string[];
+  /** Module/domain grouping */
+  module?: string;
+  /** Logical grouping (e.g., access level) */
+  group?: string;
+  /** Extensible metadata */
+  metadata?: Record<string, unknown>;
+
   /** Internal type marker */
   readonly _entity?: T;
 }

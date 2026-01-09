@@ -9,4 +9,13 @@ export const User = defineData('users', {
     notifications: field.boolean(),
   }).nullable(),
   posts: hasMany('posts', { foreignKey: 'userId' }),
+}, {
+  // Entity organization
+  tags: ['auth', 'core', 'public'],
+  module: 'identity',
+  group: 'public',
+  metadata: {
+    owner: 'auth-team',
+    priority: 'high',
+  },
 });

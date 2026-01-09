@@ -191,6 +191,28 @@ export function generateOpenAPI(options?: OpenAPIOptions): OpenAPISpec {
     spec.servers = servers;
   }
 
+  // Collect all unique classification tags from entities
+  const classificationTags = new Set<string>();
+  for (const schema of registeredSchemas) {
+    if (schema.tags) {
+      schema.tags.forEach(tag => classificationTags.add(tag));
+    }
+    if (schema.module) {
+      classificationTags.add(schema.module);
+    }
+    if (schema.group) {
+      classificationTags.add(schema.group);
+    }
+  }
+
+  // Add classification tags to spec (sorted for consistency)
+  for (const tag of Array.from(classificationTags).sort()) {
+    spec.tags!.push({
+      name: tag,
+      description: `${capitalize(tag)} APIs`,
+    });
+  }
+
   // Generate schemas and paths for each entity
   for (const schema of registeredSchemas) {
     // Add tag for entity
@@ -436,11 +458,28 @@ function relationToSchema(relation: RelationDefinition): SchemaObject | RefObjec
   }
 }
 
+/**
+ * Get all tags for an entity (entity name + classification tags)
+ */
+function getEntityTags(entity: EntitySchema): string[] {
+  const tags = [entity.name];
+  if (entity.tags) {
+    tags.push(...entity.tags);
+  }
+  if (entity.module && !tags.includes(entity.module)) {
+    tags.push(entity.module);
+  }
+  if (entity.group && !tags.includes(entity.group)) {
+    tags.push(entity.group);
+  }
+  return tags;
+}
+
 // Operation creators
 function createListOperation(entity: EntitySchema): OperationObject {
   const name = capitalize(entity.name);
   return {
-    tags: [entity.name],
+    tags: getEntityTags(entity),
     summary: `List all ${pluralize(entity.name)}`,
     operationId: `list${pluralize(name)}`,
     parameters: [
@@ -469,7 +508,7 @@ function createListOperation(entity: EntitySchema): OperationObject {
 function createGetOperation(entity: EntitySchema): OperationObject {
   const name = capitalize(entity.name);
   return {
-    tags: [entity.name],
+    tags: getEntityTags(entity),
     summary: `Get a ${entity.name}`,
     operationId: `get${name}`,
     responses: {
@@ -492,7 +531,7 @@ function createGetOperation(entity: EntitySchema): OperationObject {
 function createCreateOperation(entity: EntitySchema): OperationObject {
   const name = capitalize(entity.name);
   return {
-    tags: [entity.name],
+    tags: getEntityTags(entity),
     summary: `Create a ${entity.name}`,
     operationId: `create${name}`,
     requestBody: {
@@ -523,7 +562,7 @@ function createCreateOperation(entity: EntitySchema): OperationObject {
 function createUpdateOperation(entity: EntitySchema): OperationObject {
   const name = capitalize(entity.name);
   return {
-    tags: [entity.name],
+    tags: getEntityTags(entity),
     summary: `Update a ${entity.name}`,
     operationId: `update${name}`,
     requestBody: {
@@ -561,7 +600,7 @@ function createPatchOperation(entity: EntitySchema): OperationObject {
 
 function createDeleteOperation(entity: EntitySchema): OperationObject {
   return {
-    tags: [entity.name],
+    tags: getEntityTags(entity),
     summary: `Delete a ${entity.name}`,
     operationId: `delete${capitalize(entity.name)}`,
     responses: {

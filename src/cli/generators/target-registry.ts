@@ -53,7 +53,17 @@ export interface TargetGenerationResult {
 }
 
 /**
- * Filter schemas based on target entity configuration
+ * Filter schemas based on target entity configuration.
+ *
+ * Supports filtering by:
+ * - entities/excludeEntities: Direct entity name filtering
+ * - tags/excludeTags: Tag-based filtering (OR logic for inclusion, any match for exclusion)
+ * - module: Module-based filtering (exact match)
+ * - group: Group-based filtering (exact match)
+ *
+ * @param schemas - All analyzed schemas
+ * @param target - Target configuration with filter options
+ * @returns Filtered schemas matching the target criteria
  */
 export function filterSchemasForTarget(
   schemas: AnalyzedSchema[],
@@ -61,7 +71,7 @@ export function filterSchemasForTarget(
 ): AnalyzedSchema[] {
   let filtered = [...schemas];
 
-  // Include only specified entities
+  // 1. Include only specified entities (by name)
   if (target.entities && target.entities.length > 0) {
     const includeSet = new Set(target.entities.map((e) => e.toLowerCase()));
     filtered = filtered.filter(
@@ -72,7 +82,7 @@ export function filterSchemasForTarget(
     );
   }
 
-  // Exclude specified entities
+  // 2. Exclude specified entities (by name)
   if (target.excludeEntities && target.excludeEntities.length > 0) {
     const excludeSet = new Set(target.excludeEntities.map((e) => e.toLowerCase()));
     filtered = filtered.filter(
@@ -80,6 +90,40 @@ export function filterSchemasForTarget(
         !excludeSet.has(s.name.toLowerCase()) &&
         !excludeSet.has(s.pascalName.toLowerCase()) &&
         !excludeSet.has(s.singularName.toLowerCase())
+    );
+  }
+
+  // 3. Include only entities with specified tags (OR logic - at least one tag must match)
+  if (target.tags && target.tags.length > 0) {
+    const includeTags = new Set(target.tags.map((t) => t.toLowerCase()));
+    filtered = filtered.filter((s) => {
+      if (!s.tags || s.tags.length === 0) return false;
+      return s.tags.some((tag) => includeTags.has(tag.toLowerCase()));
+    });
+  }
+
+  // 4. Exclude entities with specified tags (any match excludes)
+  if (target.excludeTags && target.excludeTags.length > 0) {
+    const excludeTags = new Set(target.excludeTags.map((t) => t.toLowerCase()));
+    filtered = filtered.filter((s) => {
+      if (!s.tags || s.tags.length === 0) return true;
+      return !s.tags.some((tag) => excludeTags.has(tag.toLowerCase()));
+    });
+  }
+
+  // 5. Include only entities from specified module (exact match)
+  if (target.module) {
+    const targetModule = target.module.toLowerCase();
+    filtered = filtered.filter(
+      (s) => s.module && s.module.toLowerCase() === targetModule
+    );
+  }
+
+  // 6. Include only entities from specified group (exact match)
+  if (target.group) {
+    const targetGroup = target.group.toLowerCase();
+    filtered = filtered.filter(
+      (s) => s.group && s.group.toLowerCase() === targetGroup
     );
   }
 

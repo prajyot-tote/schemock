@@ -230,6 +230,11 @@ export function defineData<T extends FieldDefinitions>(
     timestamps,
     api: options?.api,
     rls: options?.rls,
+    // Entity Organization & Tagging
+    tags: options?.tags,
+    module: options?.module,
+    group: options?.group,
+    metadata: options?.metadata,
   };
 
   // Only add relations/computed if non-empty

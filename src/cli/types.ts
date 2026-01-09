@@ -165,6 +165,17 @@ export interface GenerationTarget {
   entities?: string[];
   /** Which entities to exclude */
   excludeEntities?: string[];
+
+  // Tag-based filtering
+  /** Include only entities with these tags (OR logic - entity must have at least one) */
+  tags?: string[];
+  /** Exclude entities with these tags */
+  excludeTags?: string[];
+  /** Include only entities from this module */
+  module?: string;
+  /** Include only entities from this group */
+  group?: string;
+
   /** Backend to use for server targets (e.g., nextjs-api uses supabase under the hood) */
   backend?: 'supabase' | 'firebase' | 'pglite' | 'fetch';
   /** Middleware configuration for this target */
@@ -435,6 +446,16 @@ export interface AnalyzedSchema {
 
   // RPC/Stored procedures
   rpc: AnalyzedRPC[];
+
+  // Entity Organization & Tagging
+  /** Tags for entity classification and filtering */
+  tags: string[];
+  /** Module/domain grouping */
+  module?: string;
+  /** Logical grouping (e.g., access level) */
+  group?: string;
+  /** Extensible metadata */
+  metadata?: Record<string, unknown>;
 
   // Original schema reference
   original: EntitySchema;

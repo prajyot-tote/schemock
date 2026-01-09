@@ -132,6 +132,11 @@ const GenerationTargetSchema = z.object({
   output: z.string().min(1, 'target output path is required'),
   entities: z.array(z.string()).optional(),
   excludeEntities: z.array(z.string()).optional(),
+  // Tag-based filtering
+  tags: z.array(z.string()).optional(),
+  excludeTags: z.array(z.string()).optional(),
+  module: z.string().optional(),
+  group: z.string().optional(),
   backend: z.enum(['supabase', 'firebase', 'pglite', 'fetch']).optional(),
   middleware: TargetMiddlewareConfigSchema.optional(),
   hooks: z.string().optional(),

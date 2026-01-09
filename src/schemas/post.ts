@@ -10,4 +10,12 @@ export const Post = defineData('posts', {
   }),
   userId: field.uuid(),
   author: belongsTo('users', { foreignKey: 'userId' }),
+}, {
+  // Entity organization
+  tags: ['content', 'core', 'public'],
+  module: 'content',
+  group: 'public',
+  metadata: {
+    owner: 'content-team',
+  },
 });
