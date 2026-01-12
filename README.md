@@ -98,6 +98,7 @@ npx schemock generate [options]
   --config, -c <file>     Config file path
   --only <entities>       Only generate for these entities (comma-separated)
   --exclude <entities>    Exclude these entities (comma-separated)
+  --with-form-schemas     Generate Zod validation, form defaults, and table columns
   --watch, -w             Watch mode - regenerate on changes
   --dry-run               Preview without writing files
   --verbose, -v           Verbose output
@@ -113,6 +114,100 @@ npx schemock generate --exclude audit
 
 # Combine with other options
 npx schemock generate --adapter supabase --only user,post --verbose
+```
+
+### Form Schema Generation
+
+Add `--with-form-schemas` to generate Zod validation schemas, form defaults, and table column metadata:
+
+```bash
+npx schemock generate --with-form-schemas
+```
+
+This appends the following to `types.ts` for each entity:
+
+```typescript
+// Zod validation schema with constraints from field definitions
+export const UserFormSchema = z.object({
+  name: z.string().min(1, 'Name is required'),
+  email: z.string().email().min(1, 'Email is required'),
+  role: z.enum(['admin', 'user', 'guest']),
+  bio: z.string().max(500).nullable(),
+});
+
+// Default values for form initialization
+export const UserFormDefaults: z.input<typeof UserFormSchema> = {
+  name: '',
+  email: '',
+  role: 'user',
+  bio: null,
+};
+
+// Inferred TypeScript type
+export type UserFormData = z.infer<typeof UserFormSchema>;
+
+// Table column metadata for building data tables
+export const UserTableColumns: ColumnDef[] = [
+  { key: 'name', label: 'Name', type: 'text', sortable: true, filterable: true },
+  { key: 'email', label: 'Email', type: 'email', sortable: true, filterable: true },
+  { key: 'role', label: 'Role', type: 'enum', sortable: true, filterable: true },
+  { key: 'createdAt', label: 'Created At', type: 'date', sortable: true, filterable: true, hidden: true },
+];
+
+// Union type of valid column keys
+export type UserColumnKey = 'name' | 'email' | 'role' | 'createdAt' | ...;
+```
+
+**Use with react-hook-form:**
+
+```typescript
+import { useForm } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
+import { UserFormSchema, UserFormDefaults, UserFormData } from './generated';
+
+function UserForm() {
+  const form = useForm<UserFormData>({
+    resolver: zodResolver(UserFormSchema),
+    defaultValues: UserFormDefaults,
+  });
+
+  return (
+    <form onSubmit={form.handleSubmit(onSubmit)}>
+      <input {...form.register('name')} />
+      {form.formState.errors.name && <span>{form.formState.errors.name.message}</span>}
+      {/* ... */}
+    </form>
+  );
+}
+```
+
+**Use table columns with any table library:**
+
+```typescript
+import { UserTableColumns } from './generated';
+
+// With TanStack Table
+const columns = UserTableColumns.filter(col => !col.hidden).map(col => ({
+  accessorKey: col.key,
+  header: col.label,
+  enableSorting: col.sortable,
+}));
+
+// With any custom table
+function UserTable({ users }) {
+  return (
+    <table>
+      <thead>
+        <tr>
+          {UserTableColumns.filter(c => !c.hidden).map(col => (
+            <th key={col.key}>{col.label}</th>
+          ))}
+        </tr>
+      </thead>
+      {/* ... */}
+    </table>
+  );
+}
 ```
 
 ### SQL Generation

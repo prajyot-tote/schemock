@@ -31,6 +31,7 @@ import { generateFirebaseClient } from '../generators/firebase/client';
 import { generateFetchClient } from '../generators/fetch/client';
 import { generatePGliteDb, generatePGliteClient, generatePGliteSeed } from '../generators/pglite';
 import { generateHooks } from '../generators/hooks';
+import { generateFormSchemas } from '../generators/form-schemas';
 
 // Multi-target generation
 import { generateAllTargets, legacyConfigToTarget } from '../generators/target-registry';
@@ -153,10 +154,16 @@ export async function generate(options: GenerateOptions): Promise<void> {
     typesCode += generateEndpointTypes(analyzedEndpoints);
   }
 
+  // Append form schemas if requested
+  if (options.withFormSchemas) {
+    typesCode += generateFormSchemas(analyzed);
+  }
+
   await writeOutput(join(outputDir, 'types.ts'), typesCode, options.dryRun);
   const entityCount = analyzed.filter((s) => !s.isJunctionTable).length;
   const endpointInfo = analyzedEndpoints.length > 0 ? ` + ${analyzedEndpoints.length} endpoint types` : '';
-  console.log(`   ✓ types.ts (${entityCount} entities + Create/Update/Filter types${endpointInfo})\n`);
+  const formSchemaInfo = options.withFormSchemas ? ' + form schemas' : '';
+  console.log(`   ✓ types.ts (${entityCount} entities + Create/Update/Filter types${endpointInfo}${formSchemaInfo})\n`);
 
   // 6. Generate adapter-specific code
   console.log(`🔌 Generating ${adapter} adapter...`);

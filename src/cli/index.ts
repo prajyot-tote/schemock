@@ -36,3 +36,4 @@ export { generateSeed } from './generators/mock/seed';
 export { generateSupabaseClient } from './generators/supabase/client';
 export { generateFirebaseClient } from './generators/firebase/client';
 export { generateFetchClient } from './generators/fetch/client';
+export { generateFormSchemas } from './generators/form-schemas';

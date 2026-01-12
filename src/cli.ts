@@ -23,6 +23,8 @@ interface CLIOptions {
   only?: string[];
   exclude?: string[];
   readme?: boolean;
+  // Form schema options
+  withFormSchemas?: boolean;
 }
 
 /**
@@ -67,6 +69,8 @@ function parseArgs(args: string[]): { command: string; options: CLIOptions; posi
       options.exclude = args[++i].split(',');
     } else if (arg === '--readme') {
       options.readme = true;
+    } else if (arg === '--with-form-schemas') {
+      options.withFormSchemas = true;
     } else if (!arg.startsWith('-')) {
       positional.push(arg);
     }
@@ -104,6 +108,8 @@ Generate Options:
                           Applies to ALL targets, overrides config
   --exclude <entities>    Exclude these entities (comma-separated)
                           Applies to ALL targets, overrides config
+  --with-form-schemas     Generate Zod validation schemas, form defaults,
+                          and table column metadata
   --watch, -w             Watch mode - regenerate on schema changes
   --dry-run               Show what would be generated without writing files
   --verbose, -v           Verbose output
@@ -292,6 +298,7 @@ async function generateCommand(options: CLIOptions): Promise<void> {
     verbose: options.verbose,
     only: options.only,
     exclude: options.exclude,
+    withFormSchemas: options.withFormSchemas,
   });
 }
 

@@ -543,6 +543,8 @@ export interface GenerateOptions {
   only?: string[];
   /** Exclude these entities (applies to all targets) */
   exclude?: string[];
+  /** Generate form schemas (Zod validation, defaults, column metadata) */
+  withFormSchemas?: boolean;
 }
 
 /**
