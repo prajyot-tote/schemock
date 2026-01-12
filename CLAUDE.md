@@ -25,21 +25,20 @@ Schemock is a TypeScript library that enables frontend developers to work indepe
 
 1. **FE-First** - Frontend defines the data contract, backend implements to spec
 2. **Adapter Pattern** - Same interface for mock and production backends
-3. **99.3% Bundle Reduction** - Mock code completely eliminated at build time
+3. **99.3% Bundle Reduction** - Mock code excluded via code generation (not Babel)
 4. **Full CRUD Persistence** - Not just fake data, real operations that persist
 
 ## Project Structure
 
 ```
 schemock/
-├── design/              # 10 comprehensive design docs (READ THESE FIRST)
+├── design/              # 9 design docs (READ THESE FIRST)
 ├── src/
 │   ├── schema/          # defineData, field.*, relations
 │   ├── runtime/         # Resolver engine, setup, seed
 │   ├── adapters/        # Mock, Fetch, Supabase, Firebase, GraphQL
 │   ├── middleware/      # Auth, Retry, Cache, Logger
-│   ├── generator/       # Types, hooks, OpenAPI
-│   ├── build/           # Babel/Vite/Webpack plugins
+│   ├── cli/             # Code generation CLI
 │   ├── react/           # useData, useMutate, Provider
 │   └── security/        # RLS, rate limit, audit
 ├── package.json
@@ -59,9 +58,10 @@ schemock/
 | `05-adapters.md` | Fetch, Supabase, Firebase, GraphQL implementations |
 | `06-middleware.md` | Auth, Retry, Cache, Logger chain |
 | `07-openapi-generation.md` | Schema → OpenAPI 3.0 mapping |
-| `08-compile-elimination.md` | Babel plugin, bundle reduction |
-| `09-implementation-roadmap.md` | 14-week phased plan |
+| `09-implementation-roadmap.md` | Phased plan, current status |
 | `10-security.md` | RLS, rate limiting, RBAC, ABAC, audit |
+
+> **Note**: Bundle reduction is achieved via CLI code generation - run `schemock generate --adapter supabase` for production and mock code is simply not included.
 
 ## Session Context
 
@@ -92,29 +92,41 @@ Session files in `.claude/sessions/schemock/`:
 // Schema definition
 import { defineData, field, hasMany, belongsTo } from 'schemock/schema';
 
-// React hooks
-import { useData, useMutate, useView } from 'schemock/react';
+// React hooks (from generated code)
+import { useUsers, useCreateUser } from './generated';
 
-// Adapters
+// Adapters (runtime, if needed)
 import { createMockAdapter, createSupabaseAdapter } from 'schemock/adapters';
 
 // Middleware
 import { createAuthMiddleware, createCacheMiddleware } from 'schemock/middleware';
-
-// Build plugins
-import { schemockVitePlugin } from 'schemock/build/vite';
 ```
 
-## Implementation Priority
+## CLI Usage
 
-1. **Schema DSL** - `defineData`, `field.*`, relations (foundation)
-2. **Codegen** - TypeScript types, API client generation
-3. **MockAdapter** - Data + Auth adapters with PGlite/@mswjs/data
-4. **React hooks** - `useData`, `useMutate`, `useView`
-5. **Middleware** - Auth, Cache, Retry chain
-6. **Additional adapters** - Supabase, REST, Firebase
-7. **OpenAPI export** - Generate specs from schemas
-8. **Build plugins** - Compile-time elimination
+```bash
+# Generate mock adapter code (development)
+npx schemock generate --adapter mock
+
+# Generate Supabase adapter code (production)
+npx schemock generate --adapter supabase
+
+# Generate for multiple targets
+npx schemock generate  # uses schemock.config.ts targets
+```
+
+## Implementation Status
+
+| Feature | Status |
+|---------|--------|
+| Schema DSL (`defineData`, `field.*`, relations) | ✅ Complete |
+| CLI Codegen (types, clients, hooks) | ✅ Complete |
+| MockAdapter (@mswjs/data, PGlite) | ✅ Complete |
+| React hooks | ✅ Complete |
+| Middleware (Auth, Cache, Retry) | ✅ Complete |
+| Adapters (Supabase, Firebase, Fetch) | ✅ Complete |
+| OpenAPI export | 🟡 Partial (Postman done) |
+| Documentation | 🟡 In progress |
 
 ## Code Conventions
 

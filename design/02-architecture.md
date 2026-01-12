@@ -2,543 +2,448 @@
 
 ## System Overview
 
+Schemock uses a **code generation** architecture. The CLI reads schema files and generates
+adapter-specific code. No Babel plugins or runtime transformations are needed.
+
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│                              MOCKDATA ARCHITECTURE                          │
+│                            SCHEMOCK ARCHITECTURE                             │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │                                                                             │
 │  ┌───────────────────────────────────────────────────────────────────────┐ │
-│  │                           USER'S CODE                                 │ │
+│  │                         SCHEMA FILES                                  │ │
 │  │                                                                       │ │
-│  │   import { defineData, field } from '@schemock/schema';               │ │
-│  │                                                                       │ │
-│  │   const User = defineData('user', {                                   │ │
+│  │   // schemas/user.ts                                                  │ │
+│  │   export const User = defineData('user', {                            │ │
 │  │     id: field.uuid(),                                                 │ │
 │  │     name: field.person.fullName(),                                    │ │
+│  │     email: field.internet.email(),                                    │ │
+│  │     posts: hasMany('post'),                                           │ │
 │  │   });                                                                 │ │
 │  │                                                                       │ │
 │  └───────────────────────────────┬───────────────────────────────────────┘ │
 │                                  │                                          │
 │                                  ▼                                          │
 │  ┌───────────────────────────────────────────────────────────────────────┐ │
-│  │                         GENERATOR (CLI/Build)                         │ │
+│  │                      CLI CODE GENERATOR                               │ │
 │  │                                                                       │ │
-│  │   npx schemock generate                                               │ │
-│  │                                                                       │ │
-│  │   Reads schema → Outputs:                                             │ │
-│  │   ├── types.ts        (TypeScript interfaces)                         │ │
-│  │   ├── db.ts           (@mswjs/data factory)                           │ │
-│  │   ├── handlers.ts     (MSW request handlers)                          │ │
-│  │   ├── hooks.ts        (React Query hooks)                             │ │
-│  │   ├── openapi.yaml    (OpenAPI 3.0 spec)                              │ │
-│  │   └── postman.json    (Postman collection)                            │ │
+│  │   npx schemock generate --adapter mock|supabase|firebase|fetch        │ │
 │  │                                                                       │ │
 │  └───────────────────────────────┬───────────────────────────────────────┘ │
 │                                  │                                          │
-│              ┌───────────────────┼───────────────────┐                     │
-│              │                   │                   │                      │
-│              ▼                   ▼                   ▼                      │
-│       ┌────────────┐      ┌────────────┐      ┌────────────┐              │
-│       │ @mswjs/data│      │    MSW     │      │  faker.js  │              │
-│       │            │      │            │      │            │              │
-│       │ Persistence│      │ Intercept  │      │ Generate   │              │
-│       └────────────┘      └────────────┘      └────────────┘              │
-│              │                   │                   │                      │
-│              └───────────────────┼───────────────────┘                     │
-│                                  │                                          │
-│                                  ▼                                          │
-│  ┌───────────────────────────────────────────────────────────────────────┐ │
-│  │                         DEVELOPMENT MODE                              │ │
-│  │                                                                       │ │
-│  │   fetch('/api/users')                                                 │ │
-│  │         │                                                             │ │
-│  │         ▼                                                             │ │
-│  │   MSW intercepts → @mswjs/data returns → faker.js generated           │ │
-│  │                                                                       │ │
-│  │   Full CRUD, persistence, relationships - NO BACKEND NEEDED           │ │
-│  │                                                                       │ │
-│  └───────────────────────────────────────────────────────────────────────┘ │
-│                                  │                                          │
-│                                  │ Babel Transform (Production Build)       │
-│                                  ▼                                          │
-│  ┌───────────────────────────────────────────────────────────────────────┐ │
-│  │                         PRODUCTION MODE                               │ │
-│  │                                                                       │ │
-│  │   fetch('/api/users')                                                 │ │
-│  │         │                                                             │ │
-│  │         ▼                                                             │ │
-│  │   Middleware Chain → Adapter → Real Backend                           │ │
-│  │                                                                       │ │
-│  │   NO MSW, NO @mswjs/data, NO faker.js in bundle                       │ │
-│  │   (Compile-time eliminated by Babel plugin)                           │ │
-│  │                                                                       │ │
-│  └───────────────────────────────────────────────────────────────────────┘ │
+│              ┌───────────────────┴───────────────────┐                     │
+│              │                                       │                      │
+│              ▼                                       ▼                      │
+│  ┌─────────────────────────┐          ┌─────────────────────────┐         │
+│  │     MOCK ADAPTER        │          │   PRODUCTION ADAPTER    │         │
+│  │                         │          │                         │         │
+│  │  Generated files:       │          │  Generated files:       │         │
+│  │  ├── types.ts           │          │  ├── types.ts           │         │
+│  │  ├── db.ts (@mswjs/data)│          │  ├── client.ts          │         │
+│  │  ├── handlers.ts (MSW)  │          │  ├── hooks.ts           │         │
+│  │  ├── client.ts          │          │  └── index.ts           │         │
+│  │  ├── seed.ts            │          │                         │         │
+│  │  ├── hooks.ts           │          │  NO faker, NO mswjs/data│         │
+│  │  └── index.ts           │          │  Just API calls         │         │
+│  │                         │          │                         │         │
+│  │  Includes: faker,       │          │  Includes: supabase-js  │         │
+│  │  @mswjs/data, MSW       │          │  or firebase or fetch   │         │
+│  │                         │          │                         │         │
+│  └─────────────────────────┘          └─────────────────────────┘         │
+│                                                                             │
+│  Bundle Reduction: Mock code is never generated for production adapters    │
 │                                                                             │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
+## Key Insight: Generation-Time Adapter Selection
+
+Unlike traditional approaches that use Babel to strip mock code at build time,
+Schemock generates **completely different code** for each adapter:
+
+```bash
+# Development: generates code with @mswjs/data, faker, MSW handlers
+npx schemock generate --adapter mock --output src/generated/mock
+
+# Production: generates code with Supabase client, no mock dependencies
+npx schemock generate --adapter supabase --output src/generated/prod
+```
+
+**Benefits of this approach:**
+1. No Babel/Vite/Webpack plugins needed
+2. Works with any bundler
+3. Explicit control over what's generated
+4. Full IntelliSense in generated code
+5. Easy to inspect and debug
+
 ## Package Structure
 
 ```
-@schemock/
-├── schema/                  # FE-first schema DSL
-│   ├── index.ts            # Public exports
-│   ├── define-data.ts      # defineData() function
-│   ├── define-view.ts      # defineView() function
-│   ├── define-endpoint.ts  # defineEndpoint() function
-│   ├── field.ts            # Field type builders
-│   └── relations.ts        # hasOne, hasMany, belongsTo
+schemock/
+├── src/
+│   ├── schema/                  # Schema DSL (input)
+│   │   ├── index.ts            # Public exports
+│   │   ├── define-data.ts      # defineData() function
+│   │   ├── define-view.ts      # defineView() function
+│   │   ├── define-endpoint.ts  # defineEndpoint() function
+│   │   ├── field.ts            # Field type builders
+│   │   └── relations.ts        # hasOne, hasMany, belongsTo
+│   │
+│   ├── cli/                     # Code generation CLI
+│   │   ├── index.ts            # CLI entry point
+│   │   ├── commands/           # CLI commands
+│   │   │   └── generate.ts     # Main generate command
+│   │   ├── generators/         # Adapter-specific generators
+│   │   │   ├── types.ts        # TypeScript types generator
+│   │   │   ├── hooks.ts        # React hooks generator
+│   │   │   ├── mock/           # Mock adapter generators
+│   │   │   │   ├── client.ts   # API client with @mswjs/data
+│   │   │   │   ├── db.ts       # Database factory
+│   │   │   │   ├── handlers.ts # MSW handlers
+│   │   │   │   └── seed.ts     # Seeding utilities
+│   │   │   ├── supabase/       # Supabase adapter generators
+│   │   │   │   └── client.ts   # Supabase API client
+│   │   │   ├── firebase/       # Firebase adapter generators
+│   │   │   │   └── client.ts   # Firebase API client
+│   │   │   ├── fetch/          # Fetch adapter generators
+│   │   │   │   └── client.ts   # Plain fetch API client
+│   │   │   └── pglite/         # PGlite adapter generators
+│   │   │       ├── client.ts   # SQL-based client
+│   │   │       └── db.ts       # PGlite database setup
+│   │   └── utils/              # CLI utilities
+│   │
+│   ├── adapters/               # Runtime adapters (optional use)
+│   │   ├── types.ts            # Adapter interface
+│   │   ├── mock/               # Mock adapter runtime
+│   │   ├── fetch.ts            # Fetch adapter
+│   │   ├── supabase.ts         # Supabase adapter
+│   │   ├── firebase.ts         # Firebase adapter
+│   │   └── graphql.ts          # GraphQL adapter
+│   │
+│   ├── middleware/             # Middleware system
+│   │   ├── types.ts            # Middleware interface
+│   │   ├── chain.ts            # Middleware chain executor
+│   │   ├── auth.ts             # Authentication middleware
+│   │   ├── retry.ts            # Retry with backoff
+│   │   ├── cache.ts            # Response caching
+│   │   └── logger.ts           # Request/response logging
+│   │
+│   ├── react/                  # React bindings
+│   │   ├── context.ts          # DataLayerProvider
+│   │   ├── hooks.ts            # Base hook utilities
+│   │   └── index.ts            # Public exports
+│   │
+│   ├── security/               # Security features
+│   │   ├── rls.ts              # Row-level security
+│   │   ├── rate-limit.ts       # Rate limiting
+│   │   └── audit.ts            # Audit logging
+│   │
+│   └── storage/                # Storage drivers
+│       ├── drivers/            # Storage implementations
+│       │   ├── memory.ts       # In-memory storage
+│       │   ├── localStorage.ts # Browser localStorage
+│       │   └── msw.ts          # MSW-based storage
+│       └── types.ts            # Storage interfaces
 │
-├── runtime/                # Development runtime
-│   ├── resolver/           # Data resolution layer
-│   │   ├── index.ts       # Main resolver engine
-│   │   ├── registry.ts    # Schema metadata registry
-│   │   ├── relation.ts    # Relation resolution
-│   │   ├── computed.ts    # Computed field resolution
-│   │   └── view.ts        # View/aggregation resolution
-│   ├── db.ts              # @mswjs/data wrapper
-│   ├── handlers.ts        # MSW handler generator
-│   ├── setup.ts           # Dev mode initialization
-│   ├── seed.ts            # Data seeding utilities
-│   └── prod.ts            # Production-only runtime
-│
-├── adapters/              # Backend adapters
-│   ├── types.ts           # Adapter interface
-│   ├── fetch.ts           # Default fetch adapter
-│   ├── supabase.ts        # Supabase adapter
-│   ├── firebase.ts        # Firebase/Firestore adapter
-│   ├── graphql.ts         # GraphQL/Apollo adapter
-│   └── axios.ts           # Axios adapter
-│
-├── middleware/            # Middleware system
-│   ├── types.ts           # Middleware interface
-│   ├── chain.ts           # Middleware chain executor
-│   ├── auth.ts            # Authentication middleware
-│   ├── retry.ts           # Retry with backoff
-│   ├── cache.ts           # Response caching
-│   └── logger.ts          # Request/response logging
-│
-├── generator/             # Code generators
-│   ├── types.ts           # TypeScript type generator
-│   ├── db.ts              # @mswjs/data factory generator
-│   ├── handlers.ts        # MSW handler generator
-│   ├── hooks.ts           # React hooks generator
-│   ├── openapi.ts         # OpenAPI spec generator
-│   └── postman.ts         # Postman collection generator
-│
-├── build/                 # Build-time tools
-│   ├── babel-plugin.ts    # Compile-time elimination
-│   ├── vite-plugin.ts     # Vite integration
-│   └── webpack-plugin.ts  # Webpack integration
-│
-├── react/                 # React bindings
-│   ├── provider.tsx       # DataLayerProvider
-│   ├── hooks.ts           # useData, useMutate, useView
-│   └── devtools.tsx       # Development tools panel
-│
-├── config.ts              # Global configuration
-└── cli.ts                 # CLI entry point
+├── cli.ts                      # CLI entry point
+└── index.ts                    # Main package exports
 ```
 
-## Component Interactions
+## Generated Code Structure
 
-### Development Flow
+When you run `schemock generate`, the output depends on the adapter:
 
-```
-┌──────────┐    ┌───────────┐    ┌────────────┐    ┌──────────┐
-│  Schema  │───▶│ Generator │───▶│  Runtime   │───▶│   UI     │
-│  (user)  │    │           │    │            │    │Component │
-└──────────┘    └───────────┘    └────────────┘    └──────────┘
-     │                │                │                 │
-     │                ▼                ▼                 │
-     │         ┌───────────┐    ┌────────────┐          │
-     │         │  types.ts │    │    MSW     │          │
-     │         │   db.ts   │    │ intercepts │          │
-     │         │handlers.ts│    │  requests  │          │
-     │         └───────────┘    └────────────┘          │
-     │                                │                  │
-     │                                ▼                  │
-     │                         ┌────────────┐           │
-     │                         │@mswjs/data │           │
-     │                         │ in-memory  │           │
-     │                         │  database  │           │
-     │                         └────────────┘           │
-     │                                │                  │
-     └────────────────────────────────┴──────────────────┘
-                              Schema defines
-                            everything else
-```
-
-### Production Flow
+### Mock Adapter Output
 
 ```
-┌──────────┐    ┌────────────┐    ┌────────────┐    ┌──────────┐
-│   UI     │───▶│ Middleware │───▶│  Adapter   │───▶│ Backend  │
-│Component │    │   Chain    │    │            │    │   API    │
-└──────────┘    └────────────┘    └────────────┘    └──────────┘
-     │                │                 │                 │
-     │                ▼                 ▼                 │
-     │         ┌───────────┐    ┌────────────┐           │
-     │         │   Auth    │    │   Fetch    │           │
-     │         │   Cache   │    │  Supabase  │           │
-     │         │   Retry   │    │  Firebase  │           │
-     │         │   Logger  │    │  GraphQL   │           │
-     │         └───────────┘    └────────────┘           │
-     │                                                    │
-     └────────────────────────────────────────────────────┘
-                    Same useData() hook,
-                  different implementation
+src/generated/
+├── types.ts          # TypeScript interfaces (User, UserCreate, UserUpdate, etc.)
+├── db.ts             # @mswjs/data factory with all entities
+├── handlers.ts       # MSW request handlers for CRUD operations
+├── all-handlers.ts   # Combined handlers export
+├── client.ts         # API client that reads/writes to @mswjs/data
+├── seed.ts           # Seeding utilities with faker
+├── hooks.ts          # React Query hooks (useUsers, useCreateUser, etc.)
+└── index.ts          # Barrel export
 ```
+
+### Supabase Adapter Output
+
+```
+src/generated/
+├── types.ts          # TypeScript interfaces (same as mock)
+├── client.ts         # Supabase client with typed queries
+├── hooks.ts          # React Query hooks using Supabase client
+└── index.ts          # Barrel export
+```
+
+**Note:** No faker, no @mswjs/data, no MSW in production output.
 
 ## Data Flow
 
-### Read Operation (findOne)
+### Development (Mock Adapter)
 
 ```
-useData(User, { id: '123', include: ['profile', 'posts'] })
-                    │
-                    ▼
-┌─────────────────────────────────────────────────────────────┐
-│                     RESOLVER ENGINE                          │
-├─────────────────────────────────────────────────────────────┤
-│                                                             │
-│  1. Parse options                                           │
-│     - id: '123'                                             │
-│     - include: ['profile', 'posts']                         │
-│                                                             │
-│  2. Fetch base entity                                       │
-│     db.user.findFirst({ where: { id: { equals: '123' } } }) │
-│                                                             │
-│  3. Resolve relations                                       │
-│     ├── profile (hasOne, eager)                             │
-│     │   db.userProfile.findFirst({ where: { userId: '123' }})│
-│     └── posts (hasMany)                                     │
-│         db.post.findMany({ where: { authorId: '123' } })    │
-│                                                             │
-│  4. Resolve computed fields                                 │
-│     ├── postCount = db.post.count(...)                      │
-│     └── totalViews = posts.reduce(sum, viewCount)           │
-│                                                             │
-│  5. Return assembled entity                                 │
-│                                                             │
-└─────────────────────────────────────────────────────────────┘
-                    │
-                    ▼
-{
-  id: '123',
-  name: 'John Doe',
-  email: 'john@example.com',
-  profile: { bio: '...', avatar: '...' },
-  posts: [{ id: '1', title: '...' }, ...],
-  postCount: 5,
-  totalViews: 1234
-}
+┌──────────┐     ┌────────────────┐     ┌────────────────┐     ┌────────────┐
+│   App    │────▶│ Generated Hook │────▶│ Generated API  │────▶│ @mswjs/data│
+│          │     │ useUsers()     │     │ api.user.list()│     │ in-memory  │
+└──────────┘     └────────────────┘     └────────────────┘     └────────────┘
+                                                │
+                                                ▼
+                                        ┌────────────────┐
+                                        │  RLS Filters   │
+                                        │ (generated)    │
+                                        └────────────────┘
 ```
 
-### Write Operation (create)
+### Production (Supabase Adapter)
 
 ```
-useMutate(User).create({ name: 'Jane', email: 'jane@example.com' })
-                    │
-                    ▼
-┌─────────────────────────────────────────────────────────────┐
-│                     MIDDLEWARE CHAIN                         │
-├─────────────────────────────────────────────────────────────┤
-│                                                             │
-│  [Auth Middleware]                                          │
-│    ├── Get token from storage                               │
-│    └── Add Authorization header                             │
-│                                                             │
-│  [Logger Middleware]                                        │
-│    └── Log request start                                    │
-│                                                             │
-│  [Retry Middleware]                                         │
-│    └── Initialize retry counter                             │
-│                                                             │
-└─────────────────────────────────────────────────────────────┘
-                    │
-                    ▼
-┌─────────────────────────────────────────────────────────────┐
-│                       ADAPTER                                │
-├─────────────────────────────────────────────────────────────┤
-│                                                             │
-│  [Development: Mock Adapter]                                │
-│    db.user.create({ name: 'Jane', email: 'jane@...' })      │
-│                                                             │
-│  [Production: Real Adapter]                                 │
-│    fetch('/api/users', { method: 'POST', body: {...} })     │
-│    OR                                                       │
-│    supabase.from('users').insert({...})                     │
-│    OR                                                       │
-│    apolloClient.mutate({ mutation: CREATE_USER, ... })      │
-│                                                             │
-└─────────────────────────────────────────────────────────────┘
-                    │
-                    ▼
-┌─────────────────────────────────────────────────────────────┐
-│                 MIDDLEWARE CHAIN (Response)                  │
-├─────────────────────────────────────────────────────────────┤
-│                                                             │
-│  [Logger Middleware]                                        │
-│    └── Log response, duration                               │
-│                                                             │
-│  [Cache Middleware]                                         │
-│    └── Invalidate user list cache                           │
-│                                                             │
-└─────────────────────────────────────────────────────────────┘
-                    │
-                    ▼
-{ id: 'new-uuid', name: 'Jane', email: 'jane@example.com' }
+┌──────────┐     ┌────────────────┐     ┌────────────────┐     ┌────────────┐
+│   App    │────▶│ Generated Hook │────▶│ Generated API  │────▶│  Supabase  │
+│          │     │ useUsers()     │     │ api.user.list()│     │  Database  │
+└──────────┘     └────────────────┘     └────────────────┘     └────────────┘
+                                                │
+                                                ▼
+                                        ┌────────────────┐
+                                        │  Supabase RLS  │
+                                        │ (server-side)  │
+                                        └────────────────┘
 ```
 
-## Build Pipeline
+### Key Difference
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│                      SOURCE CODE                             │
-│                                                             │
-│  import { defineData, field } from '@schemock/schema';       │
-│  import { faker } from '@faker-js/faker';                    │
-│                                                             │
-│  const User = defineData('user', {                           │
-│    id: field.uuid(),                                         │
-│    postCount: field.computed({                               │
-│      mock: () => faker.number.int({ min: 0, max: 100 }),     │
-│      resolve: (user, db) => db.post.count({...}),            │
-│    }),                                                       │
-│  });                                                         │
-│                                                             │
-│  const { data } = useData(User, { id: '123' });              │
-│                                                             │
-└─────────────────────────────────────────────────────────────┘
-                    │
-                    │ Babel/SWC Transform
-                    ▼
-┌─────────────────────────────────────────────────────────────┐
-│                    PRODUCTION CODE                           │
-│                                                             │
-│  // All mock imports REMOVED                                 │
-│  // defineData replaced with minimal config                  │
-│                                                             │
-│  const User = {                                              │
-│    __entity: 'user',                                         │
-│    __endpoint: '/api/users',                                 │
-│  };                                                          │
-│                                                             │
-│  // useData transformed to production hook                   │
-│  const { data } = __useDataProd(User, { id: '123' });        │
-│                                                             │
-└─────────────────────────────────────────────────────────────┘
-```
+- **Mock:** RLS logic is generated into client.ts, runs in browser
+- **Production:** RLS is handled by Supabase/Firebase/backend, not in client code
 
-## Beyond MSW: Custom Mock Runtime
+## Multi-Target Generation
 
-> **New from Session:** The adapter pattern enables going beyond MSW limitations.
-
-### Why Not MSW-Only?
-
-MSW intercepts at network level, but with the adapter pattern we can do better:
-
-```
-MSW Approach:
-  api.todos.list() → fetch('/api/todos') → Service Worker → MSW Handler → Response
-
-Adapter Approach (Development):
-  api.todos.list() → MockAdapter.query('todos') → In-Memory Database → Response
-
-Adapter Approach (Production):
-  api.todos.list() → SupabaseAdapter.query('todos') → Real Database → Response
-```
-
-### Benefits of Direct In-Memory Calls
-
-| Aspect | MSW | Direct Adapter |
-|--------|-----|----------------|
-| **Network** | Fake round-trip | No network at all |
-| **Realtime** | Hard (WebSocket mocking) | Easy (in-memory pub/sub) |
-| **RLS** | Manual per-handler | Policy-based filtering |
-| **Setup** | Service Worker registration | Direct instantiation |
-| **Debugging** | Network tab shows fake calls | Direct function calls |
-
-### PGlite Option
-
-For accurate SQL behavior in development, consider PGlite (PostgreSQL compiled to WASM):
+For projects that need both mock and production code:
 
 ```typescript
-class SchemockAdapter {
-  private db: PGlite;  // Real PostgreSQL in browser
+// schemock.config.ts
+export default {
+  schemas: './schemas/**/*.ts',
+  targets: [
+    {
+      name: 'mock',
+      adapter: 'mock',
+      output: './src/generated/mock',
+    },
+    {
+      name: 'supabase',
+      adapter: 'supabase',
+      output: './src/generated/supabase',
+    },
+  ],
+};
+```
 
-  async query<T>(table: string, options?: QueryOptions): Promise<T[]> {
-    // Real SQL execution, not simulated
-    const sql = this.buildSQL(table, options);
-    const result = await this.db.query(sql);
+```bash
+npx schemock generate
+# Generates both targets
+```
 
-    // Apply RLS filtering
-    return this.rlsEngine.filter(table, result.rows, 'SELECT');
-  }
-}
+Then in your app:
+
+```typescript
+// Use mock in development
+import { api, handlers } from './generated/mock';
+
+// Use supabase in production
+import { api } from './generated/supabase';
+
+// Or switch based on environment
+const { api } = process.env.NODE_ENV === 'development'
+  ? await import('./generated/mock')
+  : await import('./generated/supabase');
+```
+
+## Beyond MSW: Direct In-Memory Operations
+
+The mock adapter can work in two modes:
+
+### 1. MSW Mode (Network Interception)
+
+```
+fetch('/api/users') → MSW Service Worker → Handler → @mswjs/data → Response
+```
+
+Use when:
+- Testing network behavior
+- Want realistic network delays
+- Need to see requests in DevTools
+
+### 2. Direct Mode (No Network)
+
+```
+api.user.list() → @mswjs/data → Response
+```
+
+Use when:
+- Faster development iteration
+- Unit testing
+- SSR/Node.js environments
+
+## PGlite Option
+
+For accurate SQL behavior in development:
+
+```typescript
+// schemock.config.ts
+export default {
+  targets: [
+    {
+      name: 'mock',
+      adapter: 'pglite',  // Real PostgreSQL in browser/Node
+      output: './src/generated/mock',
+    },
+  ],
+};
 ```
 
 Benefits:
-- Accurate SQL behavior (joins, aggregations, etc.)
-- Real constraint enforcement
-- Identical query patterns to production
-
-### When to Use What
-
-| Scenario | Recommendation |
-|----------|---------------|
-| Quick prototyping | @mswjs/data (simpler) |
-| Complex queries | PGlite (accurate SQL) |
-| Testing edge cases | PGlite (real constraints) |
-| CI/CD | @mswjs/data (faster, lighter) |
-
----
-
-## Adapter Pattern Philosophy
-
-> **New from Session:** Why adapters instead of conditionals.
-
-### Bad Pattern (doesn't scale)
-
-```typescript
-const api = {
-  todos: {
-    list: async () => {
-      if (isDev) {
-        return mockRuntime.query('todos');
-      } else if (isSupabase) {
-        return supabase.from('todos').select('*');
-      } else if (isMongo) {
-        return mongo.collection('todos').find().toArray();
-      }
-      // ... grows forever
-    }
-  }
-};
-```
-
-### Good Pattern (adapter)
-
-```typescript
-// One interface, many implementations
-const api = {
-  todos: {
-    list: async (options) => adapter.query('todos', options),
-  }
-};
-
-// Adapter determined at startup
-const adapter = createAdapter(config);
-```
-
-### Why This Matters
-
-1. **No scattered conditionals** - Backend logic centralized in adapter
-2. **Runtime switchable** - Swap backends without rebuilding
-3. **Each backend optimized** - Use best tools for each
-4. **Mock = living documentation** - Same interface as production
-
----
+- Real SQL execution (joins, aggregations, constraints)
+- Identical query patterns to production PostgreSQL
+- Accurate error messages for constraint violations
 
 ## Dependency Graph
 
 ```
-@schemock/schema (no deps)
+schemock (main package)
        │
-       ▼
-@schemock/runtime ─────────────────────┐
-       │                               │
-       ├── @mswjs/data (peer)          │
-       ├── msw (peer)                  │
-       └── @faker-js/faker (peer)      │
-                                       │
-@schemock/adapters ◄───────────────────┤
-       │                               │
-       └── (optional peer deps)        │
-           ├── @supabase/supabase-js   │
-           ├── firebase                │
-           └── @apollo/client          │
-                                       │
-@schemock/middleware ◄─────────────────┤
-       │                               │
-       └── (no deps)                   │
-                                       │
-@schemock/react ◄──────────────────────┘
+       ├── CLI (code generation)
+       │   └── Reads schemas, outputs adapter-specific code
        │
-       └── @tanstack/react-query (peer)
-
-@schemock/build (dev dep only)
+       ├── Schema DSL (no runtime deps)
+       │   └── defineData, field.*, relations
        │
-       └── @babel/core
+       ├── Generated Mock Code
+       │   ├── @mswjs/data (peer)
+       │   ├── @faker-js/faker (peer)
+       │   └── msw (peer, optional)
+       │
+       ├── Generated Supabase Code
+       │   └── @supabase/supabase-js (peer)
+       │
+       ├── Generated Firebase Code
+       │   └── firebase (peer)
+       │
+       └── Generated React Hooks
+           └── @tanstack/react-query (peer)
 ```
 
-## Configuration Layers
+**Note:** Production adapters have NO dependency on faker, @mswjs/data, or MSW.
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│                    CONFIGURATION HIERARCHY                   │
-├─────────────────────────────────────────────────────────────┤
-│                                                             │
-│  1. Global Config (app-wide defaults)                       │
-│     configureDataLayer({                                    │
-│       adapter: createFetchAdapter({ baseUrl: '...' }),      │
-│       middleware: [auth, logger],                           │
-│     })                                                      │
-│                                                             │
-│  2. Entity Config (per-entity overrides)                    │
-│     configureDataLayer({                                    │
-│       adapters: {                                           │
-│         user: createSupabaseAdapter({...}),                 │
-│       },                                                    │
-│       entityMiddleware: {                                   │
-│         post: [cacheMiddleware],                            │
-│       },                                                    │
-│     })                                                      │
-│                                                             │
-│  3. Operation Config (per-call overrides)                   │
-│     useData(User, {                                         │
-│       id: '123',                                            │
-│       adapter: customAdapter,  // Override for this call    │
-│       skipCache: true,                                      │
-│     })                                                      │
-│                                                             │
-└─────────────────────────────────────────────────────────────┘
+## Configuration
+
+### schemock.config.ts
+
+```typescript
+import { defineConfig } from 'schemock';
+
+export default defineConfig({
+  // Schema discovery
+  schemas: './schemas/**/*.ts',
+
+  // Default adapter (can be overridden via CLI)
+  adapter: 'mock',
+
+  // Output directory
+  output: './src/generated',
+
+  // API prefix for generated routes
+  apiPrefix: '/api',
+
+  // Adapter-specific configuration
+  adapters: {
+    mock: {
+      // Seed counts per entity
+      seed: {
+        user: 10,
+        post: 50,
+      },
+    },
+    supabase: {
+      // Environment variable prefix
+      envPrefix: 'NEXT_PUBLIC_SUPABASE',
+    },
+    firebase: {
+      // Collection name mapping
+      collectionMap: {
+        user: 'users',
+        post: 'posts',
+      },
+    },
+  },
+
+  // Multi-target generation
+  targets: [
+    { name: 'mock', adapter: 'mock', output: './src/generated/mock' },
+    { name: 'prod', adapter: 'supabase', output: './src/generated/prod' },
+  ],
+});
 ```
 
 ## Error Handling
 
+Generated clients include proper error handling:
+
+```typescript
+// Generated mock client
+export const api = {
+  user: {
+    get: async (id: string) => {
+      const item = db.user.findFirst({ where: { id: { equals: id } } });
+      if (!item) throw new Error('User not found');
+
+      // RLS check (generated from schema)
+      const ctx = getContext();
+      if (!rlsUserSelect(item, ctx)) {
+        throw new RLSError('select', 'User');
+      }
+
+      return { data: item };
+    },
+  },
+};
+
+// Generated Supabase client
+export const api = {
+  user: {
+    get: async (id: string) => {
+      const { data, error } = await supabase
+        .from('users')
+        .select('*')
+        .eq('id', id)
+        .single();
+
+      if (error) throw error;
+      return { data };
+    },
+  },
+};
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                      ERROR FLOW                              │
-├─────────────────────────────────────────────────────────────┤
-│                                                             │
-│  useData() call                                             │
-│       │                                                     │
-│       ▼                                                     │
-│  Middleware Chain                                           │
-│       │                                                     │
-│       ▼                                                     │
-│  Adapter throws error ──────────────────┐                   │
-│                                         │                   │
-│                                         ▼                   │
-│  Middleware.onError() handlers ◄────────┤                   │
-│       │                                 │                   │
-│       ├── Auth: 401? → Refresh token    │                   │
-│       │              → Retry            │                   │
-│       │                                 │                   │
-│       ├── Retry: Retryable? → Wait      │                   │
-│       │                    → Retry      │                   │
-│       │                                 │                   │
-│       └── Logger: Log error             │                   │
-│                                         │                   │
-│  Max retries exceeded? ─────────────────┘                   │
-│       │                                                     │
-│       ▼                                                     │
-│  Error bubbles to useData()                                 │
-│       │                                                     │
-│       ▼                                                     │
-│  { error: AdapterError, data: null }                        │
-│                                                             │
-└─────────────────────────────────────────────────────────────┘
+
+## Runtime Adapters (Advanced Use)
+
+For cases where code generation doesn't fit, runtime adapters are still available:
+
+```typescript
+import { createMockAdapter, createSupabaseAdapter } from 'schemock/adapters';
+import { MiddlewareChain } from 'schemock/middleware';
+
+// Create adapter at runtime
+const adapter = process.env.NODE_ENV === 'development'
+  ? createMockAdapter({ schema })
+  : createSupabaseAdapter({ client: supabase });
+
+// Use with middleware chain
+const chain = new MiddlewareChain(adapter);
+chain.use(createAuthMiddleware({ getToken: () => localStorage.token }));
+chain.use(createRetryMiddleware({ maxRetries: 3 }));
+
+const result = await chain.execute('findMany', { entity: 'user' });
 ```
+
+**Note:** Most users should prefer the generated code approach.

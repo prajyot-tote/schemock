@@ -4,20 +4,22 @@
 
 This document outlines the implementation phases for Schemock, from MVP to full feature set.
 
+> **Architecture Note**: Schemock uses a **code generation** approach rather than runtime adapter switching.
+> The CLI generates adapter-specific code, eliminating the need for compile-time elimination plugins.
+> Mock code is simply not generated when targeting production adapters.
+
 ## Phase Summary
 
-| Phase | Focus | Duration |
-|-------|-------|----------|
-| 1 | Core Schema + Types | 2 weeks |
-| 2 | Mock Data + Persistence | 2 weeks |
-| 3 | Resolvers + Relations | 2 weeks |
-| 4 | Adapters + Middleware | 2 weeks |
-| 5 | OpenAPI Generation | 1 week |
-| 6 | Compile Elimination | 2 weeks |
-| 7 | React Bindings | 1 week |
-| 8 | CLI + DevTools | 1 week |
-| 9 | Documentation + Examples | 1 week |
-| **Total** | | **14 weeks** |
+| Phase | Focus | Status |
+|-------|-------|--------|
+| 1 | Core Schema + Types | ✅ Complete |
+| 2 | Mock Data + Persistence | ✅ Complete |
+| 3 | Resolvers + Relations | ✅ Complete |
+| 4 | Adapters + Middleware | ✅ Complete |
+| 5 | OpenAPI Generation | 🟡 Partial (Postman done) |
+| 6 | React Bindings | ✅ Complete |
+| 7 | CLI + DevTools | ✅ Complete |
+| 8 | Documentation + Examples | 🟡 Partial |
 
 ---
 
@@ -167,35 +169,16 @@ This document outlines the implementation phases for Schemock, from MVP to full 
 
 ---
 
-## Phase 6: Compile-Time Elimination
+## ~~Phase 6: Compile-Time Elimination~~ (REMOVED)
 
-### Goals
-- Remove mock code from production
-- Minimal production runtime
-- Build tool integrations
-
-### Deliverables
-- Babel plugin
-- Vite plugin
-- Webpack plugin
-- Production runtime (~3KB)
-
-### Tasks
-- [ ] Design transformation strategy
-- [ ] Implement Babel plugin
-- [ ] Implement production runtime
-- [ ] Implement Vite plugin
-- [ ] Implement Webpack plugin
-- [ ] Test bundle sizes
-- [ ] Test with various bundlers
-- [ ] Write documentation
-
-### Dependencies
-- Phase 4 (Adapters)
+> **This phase has been removed.** The code generation architecture eliminates the need for
+> compile-time elimination. When you run `schemock generate --adapter supabase`, the generated
+> code contains no mock dependencies (faker, @mswjs/data, etc.). The "99.3% bundle reduction"
+> is achieved by simply not generating mock code for production adapters.
 
 ---
 
-## Phase 7: React Bindings
+## Phase 6: React Bindings
 
 ### Goals
 - React hooks for data fetching
@@ -224,7 +207,7 @@ This document outlines the implementation phases for Schemock, from MVP to full 
 
 ---
 
-## Phase 8: CLI + DevTools
+## Phase 7: CLI + DevTools
 
 ### Goals
 - CLI for code generation
@@ -248,7 +231,7 @@ This document outlines the implementation phases for Schemock, from MVP to full 
 
 ---
 
-## Phase 9: Documentation + Examples
+## Phase 8: Documentation + Examples
 
 ### Goals
 - Comprehensive documentation
@@ -280,7 +263,7 @@ This document outlines the implementation phases for Schemock, from MVP to full 
 
 ## MVP Definition
 
-**Minimum Viable Product (Phases 1-3):**
+**Minimum Viable Product (Phases 1-3):** ✅ ACHIEVED
 
 - Schema DSL with field types
 - Mock data generation
@@ -288,13 +271,11 @@ This document outlines the implementation phases for Schemock, from MVP to full 
 - Basic relationships
 - React hooks (useData, useMutate)
 
-**MVP Scope:**
-- Single adapter (fetch)
-- No middleware
-- No compile-time elimination
+**MVP was delivered with:**
+- Multiple adapters (mock, fetch, supabase, firebase, pglite)
+- Full middleware system
+- CLI code generation
 - Basic documentation
-
-**MVP Timeline:** 6 weeks
 
 ---
 
@@ -311,18 +292,18 @@ This document outlines the implementation phases for Schemock, from MVP to full 
 
 ## Success Criteria
 
-### MVP Success
-- [ ] Schema defines types + mocks
-- [ ] CRUD operations work with persistence
-- [ ] Basic relations resolve correctly
-- [ ] React hooks work in dev mode
+### MVP Success ✅
+- [x] Schema defines types + mocks
+- [x] CRUD operations work with persistence
+- [x] Basic relations resolve correctly
+- [x] React hooks work in dev mode
 
 ### v1.0 Success
-- [ ] All adapters functional
-- [ ] Middleware system working
+- [x] All adapters functional (mock, fetch, supabase, firebase, pglite)
+- [x] Middleware system working
 - [ ] OpenAPI generation accurate
-- [ ] Production build eliminates mock code
-- [ ] <5KB production bundle
+- [x] Production builds exclude mock code (via code generation)
+- [x] Minimal production bundle (generated code only)
 - [ ] Documentation complete
 - [ ] 3+ example projects
 
@@ -336,8 +317,9 @@ This document outlines the implementation phases for Schemock, from MVP to full 
 | Network mocking | MSW | Industry standard |
 | Fake data | faker.js | Most comprehensive |
 | React integration | TanStack Query | Best data fetching library |
-| Build transform | Babel | Widest compatibility |
+| Code generation | CLI + templates | Simple, no build plugin needed |
 | TypeScript | Yes | Type safety is core value prop |
+| Build system | tsup | Fast, zero-config bundling |
 
 ---
 
@@ -354,12 +336,11 @@ This document outlines the implementation phases for Schemock, from MVP to full 
 
 ## Release Plan
 
-| Version | Contents | Target |
+| Version | Contents | Status |
 |---------|----------|--------|
-| 0.1.0 | MVP (Schema + Mocks + Persistence) | Week 6 |
-| 0.2.0 | + Adapters + Middleware | Week 10 |
-| 0.3.0 | + OpenAPI + Compile Elimination | Week 13 |
-| 1.0.0 | Full release | Week 14 |
+| 0.0.4-alpha | Schema + Mocks + Adapters + CLI | ✅ Current |
+| 0.1.0 | + OpenAPI generation + More examples | 🔜 Next |
+| 1.0.0 | Full documentation + Stable API | Planned |
 
 ---
 
