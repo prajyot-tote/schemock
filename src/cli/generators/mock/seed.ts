@@ -7,6 +7,7 @@
 
 import type { AnalyzedSchema, MockAdapterConfig } from '../../types';
 import { CodeBuilder } from '../../utils/code-builder';
+import { toSafePropertyName } from '../../utils/pluralize';
 
 /**
  * Generate seed and reset utilities for mock database
@@ -26,7 +27,8 @@ export function generateSeed(schemas: AnalyzedSchema[], config: MockAdapterConfi
   code.block('export interface SeedCounts {', () => {
     for (const schema of schemas) {
       if (schema.isJunctionTable) continue;
-      code.line(`${schema.name}?: number;`);
+      const safeName = toSafePropertyName(schema.name);
+      code.line(`${safeName}?: number;`);
     }
   });
   code.line();
@@ -35,8 +37,9 @@ export function generateSeed(schemas: AnalyzedSchema[], config: MockAdapterConfi
   code.block('const defaultCounts: Required<SeedCounts> = {', () => {
     for (const schema of schemas) {
       if (schema.isJunctionTable) continue;
+      const safeName = toSafePropertyName(schema.name);
       const count = config.seed?.[schema.name] ?? 10;
-      code.line(`${schema.name}: ${count},`);
+      code.line(`${safeName}: ${count},`);
     }
   }, '};');
   code.line();
@@ -60,20 +63,22 @@ export function generateSeed(schemas: AnalyzedSchema[], config: MockAdapterConfi
     for (const schema of schemas) {
       if (schema.isJunctionTable) continue;
 
+      const safeName = toSafePropertyName(schema.name);
+
       // Find FK fields from belongsTo relations (these need valid parent IDs)
       const belongsToRels = schema.relations.filter(r => r.type === 'belongsTo');
       // Map: localField -> target entity name
       const fkFields = belongsToRels.map(r => ({
         fieldName: r.localField || r.foreignKey,
-        target: r.target,
+        target: toSafePropertyName(r.target),
         nullable: schema.fields.find(f => f.name === (r.localField || r.foreignKey))?.nullable ?? false,
       }));
 
-      code.line(`ids.${schema.name} = [];`);
-      code.block(`for (let i = 0; i < merged.${schema.name}; i++) {`, () => {
+      code.line(`ids.${safeName} = [];`);
+      code.block(`for (let i = 0; i < merged.${safeName}; i++) {`, () => {
         if (fkFields.length > 0) {
           // Create with explicit foreign key values from parent entities
-          code.line(`const item = db.${schema.name}.create({`);
+          code.line(`const item = db.${safeName}.create({`);
           code.indent();
           for (const fk of fkFields) {
             if (fk.nullable) {
@@ -88,9 +93,9 @@ export function generateSeed(schemas: AnalyzedSchema[], config: MockAdapterConfi
           code.line(`// eslint-disable-next-line @typescript-eslint/no-explicit-any`);
           code.line('} as any);');
         } else {
-          code.line(`const item = db.${schema.name}.create({});`);
+          code.line(`const item = db.${safeName}.create({});`);
         }
-        code.line(`ids.${schema.name}.push(item.id);`);
+        code.line(`ids.${safeName}.push(item.id);`);
       });
       code.line();
     }
@@ -101,7 +106,8 @@ export function generateSeed(schemas: AnalyzedSchema[], config: MockAdapterConfi
   code.block('export function reset(): void {', () => {
     // Delete in reverse order (dependents first)
     for (const schema of [...schemas].reverse()) {
-      code.line(`db.${schema.name}.deleteMany({ where: {} });`);
+      const safeName = toSafePropertyName(schema.name);
+      code.line(`db.${safeName}.deleteMany({ where: {} });`);
     }
   });
   code.line();
@@ -110,7 +116,8 @@ export function generateSeed(schemas: AnalyzedSchema[], config: MockAdapterConfi
   code.block('export function getAll(): Record<string, unknown[]> {', () => {
     code.block('return {', () => {
       for (const schema of schemas) {
-        code.line(`${schema.name}: db.${schema.name}.getAll(),`);
+        const safeName = toSafePropertyName(schema.name);
+        code.line(`${safeName}: db.${safeName}.getAll(),`);
       }
     }, '};');
   });

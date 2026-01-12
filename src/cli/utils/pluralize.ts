@@ -266,3 +266,26 @@ export function toSnakeCase(str: string): string {
     .replace(/^_/, '')
     .replace(/[-\s]+/g, '_');
 }
+
+/**
+ * Convert string to a safe JavaScript property name
+ *
+ * Handles hyphenated names, spaces, and other characters that
+ * would make a string invalid as a JS identifier.
+ *
+ * @example
+ * ```typescript
+ * toSafePropertyName('user') // 'user'
+ * toSafePropertyName('post-detail') // 'postDetail'
+ * toSafePropertyName('user-profile') // 'userProfile'
+ * toSafePropertyName('my entity') // 'myEntity'
+ * ```
+ */
+export function toSafePropertyName(str: string): string {
+  // If the string is already a valid identifier (no special chars), return as-is
+  if (/^[a-zA-Z_$][a-zA-Z0-9_$]*$/.test(str)) {
+    return str;
+  }
+  // Otherwise, convert to camelCase
+  return toCamelCase(str);
+}

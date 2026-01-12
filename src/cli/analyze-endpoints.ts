@@ -61,6 +61,7 @@ function analyzeEndpoint(endpoint: EndpointSchema): AnalyzedEndpoint {
  * - /api/orders/:id -> ordersById
  * - /api/users/:userId/posts -> userPosts
  * - /health -> health
+ * - /api/posts/bulk-delete -> postsBulkDelete
  */
 function deriveEndpointName(path: string): string {
   // Remove /api/ prefix if present
@@ -74,13 +75,17 @@ function deriveEndpointName(path: string): string {
   const nameParts: string[] = [];
 
   for (let i = 0; i < parts.length; i++) {
-    const part = parts[i];
+    let part = parts[i];
 
     if (part.startsWith(':')) {
       // Path parameter - add "By" prefix and capitalize
-      const paramName = part.slice(1);
+      // Also handle hyphenated params like :user-id -> ByUserId
+      const paramName = toCamelCaseFromHyphen(part.slice(1));
       nameParts.push('By' + capitalize(paramName));
     } else if (part) {
+      // Convert hyphenated segments to camelCase
+      part = toCamelCaseFromHyphen(part);
+
       // Regular path segment
       if (i === 0) {
         nameParts.push(part);
@@ -115,6 +120,18 @@ function toPascalCase(str: string): string {
  */
 function capitalize(str: string): string {
   return str.charAt(0).toUpperCase() + str.slice(1);
+}
+
+/**
+ * Convert hyphenated string to camelCase
+ *
+ * Example: bulk-delete -> bulkDelete
+ */
+function toCamelCaseFromHyphen(str: string): string {
+  return str
+    .split('-')
+    .map((part, index) => (index === 0 ? part : capitalize(part)))
+    .join('');
 }
 
 /**
