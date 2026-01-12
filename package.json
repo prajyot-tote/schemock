@@ -1,6 +1,6 @@
 {
   "name": "schemock",
-  "version": "0.0.4-alpha.1",
+  "version": "0.0.4-alpha.2",
   "description": "Schema-first code generation for frontend developers. Generate TypeScript types, API clients, React hooks, Next.js routes, and Node.js handlers from a single schema.",
   "keywords": [
     "schema",
@@ -80,6 +80,11 @@
     "build": "tsup",
     "dev": "tsup --watch",
     "test": "vitest",
+    "test:run": "vitest run",
+    "test:integration": "vitest run --include 'src/__tests__/integration/**/*.test.ts'",
+    "test:integration:watch": "vitest --include 'src/__tests__/integration/**/*.test.ts'",
+    "pretest:integration": "npm run build",
+    "test:coverage": "vitest run --coverage",
     "lint": "eslint src",
     "typecheck": "tsc --noEmit",
     "prepublishOnly": "npm run build"
