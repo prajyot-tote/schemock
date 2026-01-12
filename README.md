@@ -562,6 +562,109 @@ export default defineConfig({
 });
 ```
 
+## File Organization
+
+Schemock supports organizing schemas across multiple files and directories. The CLI discovers all schemas via glob patterns and merges them before generation - **no code changes needed**.
+
+### Recommended Structure
+
+```
+src/schemas/
+├── entities/           # Entity definitions (defineData)
+│   ├── user.ts
+│   ├── post.ts
+│   └── comment.ts
+├── endpoints/          # Custom API endpoints (defineEndpoint)
+│   ├── search.ts
+│   └── bulk-operations.ts
+├── views/              # Composite views (defineView)
+│   └── user-profile.ts
+└── index.ts            # Optional barrel exports
+```
+
+Or organize by domain:
+
+```
+src/schemas/
+├── auth/
+│   ├── user.ts
+│   ├── session.ts
+│   └── auth-endpoints.ts
+├── content/
+│   ├── post.ts
+│   ├── comment.ts
+│   └── search-endpoint.ts
+└── billing/
+    ├── subscription.ts
+    └── payment.ts
+```
+
+### How It Works
+
+1. **Discovery is file-agnostic** - The glob pattern `./src/schemas/**/*.ts` catches all files
+2. **References are string-based** - Relations use entity names, not imports:
+   ```typescript
+   // entities/post.ts
+   belongsTo('user')  // References 'user' by name, not import
+   field.ref('user')  // Same - string reference
+   ```
+3. **Merging happens before analysis** - All schemas are combined, so cross-file references resolve correctly
+4. **Endpoints access all entities** - `mockResolver` receives `db` with every entity:
+   ```typescript
+   // endpoints/search.ts
+   mockResolver: async ({ db }) => {
+     const users = db.user.findMany(...);  // Works!
+     const posts = db.post.findMany(...);  // Works!
+   }
+   ```
+
+### Configuration
+
+A single glob pattern discovers everything:
+
+```typescript
+// schemock.config.ts
+export default {
+  schemas: './src/schemas/**/*.ts',  // Catches all subdirectories
+  output: './src/generated',
+  // ...
+};
+```
+
+### Cross-File Example
+
+```typescript
+// entities/user.ts
+export const User = defineData('user', {
+  id: field.uuid(),
+  name: field.string(),
+}, {
+  relations: {
+    posts: hasMany('post'),  // String reference to Post
+  },
+});
+
+// entities/post.ts (separate file)
+export const Post = defineData('post', {
+  id: field.uuid(),
+  authorId: field.ref('user'),  // String reference to User
+}, {
+  relations: {
+    author: belongsTo('user'),  // String reference to User
+  },
+});
+
+// endpoints/stats.ts (separate file)
+export const StatsEndpoint = defineEndpoint('/api/stats', {
+  mockResolver: async ({ db }) => ({
+    userCount: db.user.count(),   // Access User entity
+    postCount: db.post.count(),   // Access Post entity
+  }),
+});
+```
+
+All three files are discovered, merged, and work together seamlessly.
+
 ## Multi-Target Generation
 
 Generate multiple outputs from a single schema - client SDKs, API routes, and server handlers all at once:
