@@ -19,6 +19,7 @@ export { analyzeSchemas } from './analyze';
 
 // Commands
 export { generate } from './commands/generate';
+export { setupAI } from './commands/setup-ai';
 
 // Utilities
 export { pluralize, toPascalCase, toCamelCase } from './utils/pluralize';
@@ -37,3 +38,9 @@ export { generateSupabaseClient } from './generators/supabase/client';
 export { generateFirebaseClient } from './generators/firebase/client';
 export { generateFetchClient } from './generators/fetch/client';
 export { generateFormSchemas } from './generators/form-schemas';
+export {
+  generateClaudeMd,
+  generateSchemockSection,
+  generateCursorRules,
+  mergeClaudeMdContent,
+} from './generators/claude-md';

@@ -25,6 +25,9 @@ interface CLIOptions {
   readme?: boolean;
   // Form schema options
   withFormSchemas?: boolean;
+  // AI setup options
+  cursor?: boolean;
+  force?: boolean;
 }
 
 /**
@@ -71,6 +74,10 @@ function parseArgs(args: string[]): { command: string; options: CLIOptions; posi
       options.readme = true;
     } else if (arg === '--with-form-schemas') {
       options.withFormSchemas = true;
+    } else if (arg === '--cursor') {
+      options.cursor = true;
+    } else if (arg === '--force') {
+      options.force = true;
     } else if (!arg.startsWith('-')) {
       positional.push(arg);
     }
@@ -97,6 +104,7 @@ Commands:
                                    Generate OpenAPI 3.0 specification
   generate:postman [--output <file>]
                                    Generate Postman collection
+  setup:ai [options]               Generate CLAUDE.md for AI tool integration
   help                             Show this help message
   version                          Show version
 
@@ -123,6 +131,11 @@ SQL Generation Options (generate:sql):
   --readme                Generate README.md documentation
   --dry-run               Show what would be generated without writing files
 
+AI Setup Options (setup:ai):
+  --cursor                Also generate .cursorrules for Cursor IDE
+  --force                 Overwrite existing files without checking
+  --dry-run               Show what would be generated without writing
+
 Other Options:
   --format, -f <format>   Output format (json, yaml) for OpenAPI
   --template, -t <name>   Template name for init
@@ -139,6 +152,9 @@ Examples:
   schemock generate:sql --only tables,indexes,rls
   schemock generate:openapi --output api.yaml --format yaml
   schemock generate:postman --output collection.json
+  schemock setup:ai                            # Generate CLAUDE.md
+  schemock setup:ai --cursor                   # Also generate .cursorrules
+  schemock setup:ai --dry-run                  # Preview without writing
 
 Entity Filtering (in config):
   targets: [
@@ -235,6 +251,13 @@ export const commentSchema = defineData('comment', {
 
   // Create config file
   const configPath = 'schemock.config.ts';
+  const defaultConfig = {
+    schemas: './src/schemas/**/*.ts',
+    output: './src/generated',
+    adapter: 'mock' as const,
+    apiPrefix: '/api',
+  };
+
   if (!existsSync(configPath)) {
     const configContent = `import { defineConfig } from 'schemock/cli';
 
@@ -276,11 +299,38 @@ export default defineConfig({
     console.log(`  Created ${configPath}`);
   }
 
+  // Generate CLAUDE.md for AI tool integration
+  console.log('\n🤖 Setting up AI configuration...');
+  const { generateClaudeMd } = await import('./cli/generators/claude-md');
+
+  const claudeMdPath = resolve('CLAUDE.md');
+  let existingClaudeMd = '';
+  if (existsSync(claudeMdPath)) {
+    existingClaudeMd = readFileSync(claudeMdPath, 'utf-8');
+  }
+
+  const claudeResult = generateClaudeMd(defaultConfig, existingClaudeMd);
+
+  if (claudeResult.modified || claudeResult.created) {
+    writeFileSync(claudeMdPath, claudeResult.content, 'utf-8');
+    if (claudeResult.created) {
+      console.log('  Created CLAUDE.md');
+    } else {
+      console.log('  Updated CLAUDE.md (added Schemock section)');
+    }
+  } else {
+    console.log('  CLAUDE.md already has Schemock configuration');
+  }
+
   console.log('\n✓ Schemock initialized successfully!\n');
   console.log('Next steps:');
   console.log('  1. Review and customize schemas in src/schemas/');
   console.log('  2. Run: npx schemock generate');
   console.log('  3. Import { useUsers, useCreateUser } from ./src/generated');
+  console.log('');
+  console.log('AI Integration:');
+  console.log('  • CLAUDE.md helps Claude Code understand your project');
+  console.log('  • Run "npx schemock setup:ai --cursor" for Cursor IDE support');
   console.log('');
 }
 
@@ -364,6 +414,20 @@ async function generateOpenAPICommand(options: CLIOptions): Promise<void> {
   writeFileSync(outputPath, output);
   console.log(`  Generated: ${outputPath}`);
   console.log('\n✓ OpenAPI specification generated successfully!\n');
+}
+
+/**
+ * Setup AI configuration (CLAUDE.md, .cursorrules)
+ */
+async function setupAICommand(options: CLIOptions): Promise<void> {
+  const { setupAI } = await import('./cli/commands/setup-ai');
+  await setupAI({
+    config: options.config,
+    cursor: options.cursor,
+    force: options.force,
+    dryRun: options.dryRun,
+    output: options.output,
+  });
 }
 
 /**
@@ -489,6 +553,10 @@ async function main(): Promise<void> {
 
     case 'generate:sql':
       await generateSQLCommand(options);
+      break;
+
+    case 'setup:ai':
+      await setupAICommand(options);
       break;
 
     default:

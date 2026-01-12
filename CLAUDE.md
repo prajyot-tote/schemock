@@ -144,3 +144,124 @@ npm run dev        # Watch mode
 npm run test       # Run tests
 npm run typecheck  # TypeScript check
 ```
+
+<!-- SCHEMOCK:START - AI instructions for Schemock. Do not remove this marker -->
+
+## Schemock - AI Instructions
+
+This project uses [Schemock](https://github.com/prajyot-tote/schemock) for schema-first code generation.
+
+### Generated Files - DO NOT MODIFY
+
+The following directories contain auto-generated code. **NEVER edit these files directly.**
+Changes will be overwritten on next `npx schemock generate`.
+
+- `./src/generated/**/*`
+- `./src/generated/api/**/*`
+- `./src/generated/node/**/*`
+- `./src/generated/supabase/**/*`
+
+### How to Make Changes
+
+To modify generated types, hooks, or clients:
+
+1. **Edit schema files** in `./src/schemas/`
+2. **Run generation**: `npx schemock generate`
+3. **Import from generated directory**
+
+### Schema DSL Quick Reference
+
+```typescript
+import { defineData, field, hasMany, belongsTo } from 'schemock/schema';
+
+export const userSchema = defineData('user', {
+  id: field.uuid(),
+  email: field.email().unique(),
+  name: field.string(),
+  role: field.enum(['admin', 'user']).default('user'),
+  avatar: field.url().nullable(),
+  createdAt: field.timestamp().default(new Date()),
+});
+
+export const postSchema = defineData('post', {
+  id: field.uuid(),
+  title: field.string(),
+  content: field.text(),
+  authorId: field.ref('user'),
+}, {
+  relations: {
+    author: belongsTo('user', 'authorId'),
+  },
+});
+```
+
+### Available Field Types
+
+| Type | Description | Example |
+|------|-------------|---------|
+| `field.uuid()` | UUID primary key | `id: field.uuid()` |
+| `field.string()` | Text string | `name: field.string()` |
+| `field.text()` | Long text | `content: field.text()` |
+| `field.email()` | Email address | `email: field.email()` |
+| `field.url()` | URL string | `avatar: field.url()` |
+| `field.int()` | Integer number | `age: field.int()` |
+| `field.float()` | Decimal number | `price: field.float()` |
+| `field.boolean()` | True/false | `active: field.boolean()` |
+| `field.enum([...])` | Enum values | `status: field.enum(['draft', 'published'])` |
+| `field.timestamp()` | Date/time | `createdAt: field.timestamp()` |
+| `field.date()` | Date only | `birthDate: field.date()` |
+| `field.ref('entity')` | Foreign key | `authorId: field.ref('user')` |
+| `field.json()` | JSON object | `metadata: field.json()` |
+
+### Field Modifiers
+
+- `.nullable()` - Field can be null
+- `.default(value)` - Default value
+- `.unique()` - Must be unique
+- `.index()` - Create database index
+
+### Relations
+
+```typescript
+import { hasMany, belongsTo, hasOne, manyToMany } from 'schemock/schema';
+
+// One-to-many: User has many Posts
+hasMany('post', 'authorId')
+
+// Many-to-one: Post belongs to User
+belongsTo('user', 'authorId')
+
+// One-to-one: User has one Profile
+hasOne('profile', 'userId')
+
+// Many-to-many: Post has many Tags
+manyToMany('tag', 'post_tags')
+```
+
+### Common Tasks
+
+| Task | What to do |
+|------|------------|
+| Add new entity | Create new schema file in `src/schemas/`, run `npx schemock generate` |
+| Add field | Edit schema file, run `npx schemock generate` |
+| Add relation | Add to schema `relations` object, run `npx schemock generate` |
+| Change field type | Edit schema file, run `npx schemock generate` |
+| Fix generated code bug | Report issue, don't edit generated files |
+
+### CLI Commands
+
+```bash
+# Generate all code from schemas
+npx schemock generate
+
+# Generate for specific adapter
+npx schemock generate --adapter supabase
+
+# Generate SQL migrations
+npx schemock generate:sql
+
+# Dry run (show what would be generated)
+npx schemock generate --dry-run
+```
+
+<!-- SCHEMOCK:END -->

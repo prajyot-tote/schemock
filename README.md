@@ -23,6 +23,11 @@ npm install schemock
 npx schemock init
 ```
 
+This creates:
+- `src/schemas/user.ts` - Example schema with User, Post, Comment
+- `schemock.config.ts` - Configuration file
+- `CLAUDE.md` - AI tool configuration (helps Claude Code, Cursor, etc.)
+
 Define your schema:
 
 ```typescript
@@ -87,6 +92,7 @@ schemock <command> [options]
 | `generate:sql` | Generate PostgreSQL schema with RLS |
 | `generate:openapi` | Generate OpenAPI 3.0 specification |
 | `generate:postman` | Generate Postman collection |
+| `setup:ai` | Generate CLAUDE.md for AI tool integration |
 
 ### Generate Options
 
@@ -220,6 +226,49 @@ npx schemock generate:sql [options]
   --target <platform>     postgres|supabase|pglite
   --only <sections>       tables,foreign-keys,indexes,rls,functions,triggers
   --readme                Generate README documentation
+```
+
+### AI Tool Integration
+
+Schemock can generate configuration files that help AI coding assistants (like Claude Code, Cursor, etc.) understand your project and avoid modifying auto-generated code.
+
+**Automatic setup (recommended):**
+
+When you run `schemock init`, a `CLAUDE.md` file is automatically created with:
+- List of generated directories that AI should not modify
+- Schema DSL reference for AI assistance
+- Common tasks and CLI commands
+
+**Manual setup for existing projects:**
+
+```bash
+# Generate/update CLAUDE.md
+npx schemock setup:ai
+
+# Also generate .cursorrules for Cursor IDE
+npx schemock setup:ai --cursor
+
+# Preview without writing files
+npx schemock setup:ai --dry-run
+```
+
+**What the AI configuration includes:**
+- **Generated files warning** - Tells AI which directories contain auto-generated code
+- **Schema DSL reference** - Helps AI write correct schema definitions
+- **Common tasks** - Guides AI on how to add fields, entities, relations
+- **CLI commands** - Reference for generation commands
+
+**Safe merging:** If you already have a `CLAUDE.md`, Schemock appends its section without overwriting your existing content. Clear markers (`<!-- SCHEMOCK:START -->` / `<!-- SCHEMOCK:END -->`) identify the auto-generated portion.
+
+**Options:**
+
+```bash
+npx schemock setup:ai [options]
+
+  --cursor                Also generate .cursorrules for Cursor IDE
+  --force                 Overwrite existing .cursorrules even if not created by Schemock
+  --dry-run               Preview without writing files
+  --output, -o <dir>      Output directory (default: current directory)
 ```
 
 ## Schema DSL
