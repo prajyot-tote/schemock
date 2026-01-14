@@ -20,6 +20,7 @@ This document outlines the implementation phases for Schemock, from MVP to full 
 | 6 | React Bindings | ✅ Complete |
 | 7 | CLI + DevTools | ✅ Complete |
 | 8 | Documentation + Examples | 🟡 Partial |
+| Future | Advanced Caching | 📋 Planned |
 
 ---
 
@@ -341,6 +342,53 @@ This document outlines the implementation phases for Schemock, from MVP to full 
 | 0.0.4-alpha | Schema + Mocks + Adapters + CLI | ✅ Current |
 | 0.1.0 | + OpenAPI generation + More examples | 🔜 Next |
 | 1.0.0 | Full documentation + Stable API | Planned |
+
+---
+
+## Future: Advanced Caching
+
+### Goals
+- Distributed/persistent cache backends
+- Smarter eviction strategies
+- Pattern-based cache invalidation
+- Client-side persistent storage
+
+### Deliverables
+- Redis cache storage implementation
+- LRU eviction (replace current FIFO)
+- Pattern-based invalidation (`user:*`, `findMany:*`)
+- Stale-while-revalidate support
+- localStorage/IndexedDB storage for client-side
+- Cache warming utilities
+
+### Tasks
+- [ ] Implement `RedisCacheStorage` class
+- [ ] Replace FIFO eviction with LRU in `MemoryCacheStorage`
+- [ ] Add `invalidatePattern(pattern: string)` to `CacheStorage` interface
+- [ ] Implement stale-while-revalidate (serve stale, refresh in background)
+- [ ] Implement `LocalStorageCacheStorage` for browsers
+- [ ] Implement `IndexedDBCacheStorage` for larger client-side caching
+- [ ] Add cache warming/preload utilities
+- [ ] Add cache statistics/metrics (hit rate, size, evictions)
+- [ ] Write tests
+- [ ] Write documentation
+
+### Current Limitations (to address)
+| Issue | Current Behavior | Target Behavior |
+|-------|------------------|-----------------|
+| Eviction strategy | FIFO (oldest insert) | LRU (least recently used) |
+| Pattern invalidation | Exact key only | Glob patterns (`user:*`) |
+| Stale handling | Hard TTL expiration | Stale-while-revalidate option |
+| Distributed cache | None (in-memory only) | Redis, Memcached support |
+| Client persistence | None (memory only) | localStorage, IndexedDB |
+
+### Dependencies
+- Phase 4 (Adapters + Middleware) - ✅ Complete
+- External: `ioredis` or `redis` package for Redis support
+
+### Priority
+- **Medium** - Current in-memory cache works for most use cases
+- Consider for v1.1+ or when users request distributed caching
 
 ---
 
