@@ -541,11 +541,16 @@ function analyzeRelation(
     );
   }
 
+  // Resolve target to actual schema name (handles aliasing like 'user' -> 'authUser')
+  const resolvedTargetSchema = findSchemaByName(schemaMap, rel.target);
+  const resolvedTarget = resolvedTargetSchema?.name ?? rel.target;
+
   const result: AnalyzedRelation = {
     name,
     type: rel.type,
     target: rel.target,
-    targetPascal: toPascalCase(singularize(rel.target)),
+    resolvedTarget,
+    targetPascal: toPascalCase(singularize(resolvedTarget)),
     foreignKey,
     eager: rel.eager ?? false,
     inferred: fkInferred,  // Track whether FK was inferred vs explicit

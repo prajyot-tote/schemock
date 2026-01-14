@@ -7,6 +7,7 @@
 
 import type { AnalyzedSchema, AnalyzedRelation } from '../../types';
 import { CodeBuilder } from '../../utils/code-builder';
+import { toSafePropertyName } from '../../utils/pluralize';
 import {
   generateRLSContextType,
   generateBypassCheck,
@@ -392,25 +393,30 @@ function generateEntityApi(
  * Generate code to load a relation
  */
 function generateRelationLoad(code: CodeBuilder, schema: AnalyzedSchema, rel: AnalyzedRelation): void {
+  // Use resolvedTarget to get the actual entity name (handles aliasing like 'user' -> 'authUser')
+  const targetDbName = toSafePropertyName(rel.resolvedTarget);
+
   if (rel.type === 'hasMany') {
-    code.line(`result.${rel.name} = db.${rel.target}.findMany({`);
+    code.line(`result.${rel.name} = db.${targetDbName}.findMany({`);
     code.line(`  where: { ${rel.foreignKey}: { equals: item.id } }`);
     code.line('});');
   } else if (rel.type === 'hasOne') {
-    code.line(`result.${rel.name} = db.${rel.target}.findFirst({`);
+    code.line(`result.${rel.name} = db.${targetDbName}.findFirst({`);
     code.line(`  where: { ${rel.foreignKey}: { equals: item.id } }`);
     code.line('});');
   } else if (rel.type === 'belongsTo') {
-    code.line(`result.${rel.name} = db.${rel.target}.findFirst({`);
+    code.line(`result.${rel.name} = db.${targetDbName}.findFirst({`);
     code.line(`  where: { id: { equals: (item as Record<string, unknown>).${rel.localField} as string } }`);
     code.line('});');
   } else if (rel.type === 'manyToMany') {
     // foreignKey is the FK on the junction table pointing to the source entity
-    code.line(`const junctions = db.${rel.through}.findMany({`);
+    // Note: rel.through should also be resolved if it can be aliased
+    const throughDbName = toSafePropertyName(rel.through!);
+    code.line(`const junctions = db.${throughDbName}.findMany({`);
     code.line(`  where: { ${rel.foreignKey}: { equals: item.id } }`);
     code.line('});');
     code.line(`result.${rel.name} = junctions`);
-    code.line(`  .map(j => db.${rel.target}.findFirst({`);
+    code.line(`  .map(j => db.${targetDbName}.findFirst({`);
     code.line(`    where: { id: { equals: (j as Record<string, unknown>).${rel.otherKey} as string } }`);
     code.line('  }))');
     code.line('  .filter(Boolean);');
@@ -458,15 +464,17 @@ function generateCreateMethod(
       }
 
       for (const rel of nestedRels) {
+        // Use resolvedTarget to get the actual entity name
+        const targetDbName = toSafePropertyName(rel.resolvedTarget);
         code.block(`if (${rel.name}) {`, () => {
           if (rel.type === 'hasMany') {
             code.block(`for (const nested of ${rel.name}) {`, () => {
               code.line(`// eslint-disable-next-line @typescript-eslint/no-explicit-any`);
-              code.line(`db.${rel.target}.create({ ...nested, ${rel.foreignKey}: item.id } as any);`);
+              code.line(`db.${targetDbName}.create({ ...nested, ${rel.foreignKey}: item.id } as any);`);
             });
           } else {
             code.line(`// eslint-disable-next-line @typescript-eslint/no-explicit-any`);
-            code.line(`db.${rel.target}.create({ ...${rel.name}, ${rel.foreignKey}: item.id } as any);`);
+            code.line(`db.${targetDbName}.create({ ...${rel.name}, ${rel.foreignKey}: item.id } as any);`);
           }
         });
       }

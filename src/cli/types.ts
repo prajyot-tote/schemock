@@ -279,7 +279,10 @@ export interface AnalyzedField {
 export interface AnalyzedRelation {
   name: string;
   type: 'hasOne' | 'hasMany' | 'belongsTo' | 'manyToMany';
+  /** Original target as defined in relation (e.g., 'user') */
   target: string;
+  /** Resolved target - actual schema name found (e.g., 'authUser'). Falls back to target if not found. */
+  resolvedTarget: string;
   targetPascal: string;
   foreignKey: string;
 
