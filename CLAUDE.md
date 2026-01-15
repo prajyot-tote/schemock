@@ -32,34 +32,18 @@ Schemock is a TypeScript library that enables frontend developers to work indepe
 
 ```
 schemock/
-├── design/              # 9 design docs (READ THESE FIRST)
 ├── src/
 │   ├── schema/          # defineData, field.*, relations
-│   ├── runtime/         # Resolver engine, setup, seed
+│   ├── cli/             # Code generation CLI
 │   ├── adapters/        # Mock, Fetch, Supabase, Firebase, GraphQL
 │   ├── middleware/      # Auth, Retry, Cache, Logger
-│   ├── cli/             # Code generation CLI
-│   ├── react/           # useData, useMutate, Provider
-│   └── security/        # RLS, rate limit, audit
+│   ├── react/           # React hooks utilities
+│   ├── runtime/         # Setup, seed utilities
+│   ├── security/        # RLS utilities
+│   └── storage/         # Storage drivers (memory, localStorage)
 ├── package.json
 └── README.md
 ```
-
-## Design Documentation
-
-**IMPORTANT**: Read the design docs in `/design/` before implementing. They contain:
-
-| Doc | Contents |
-|-----|----------|
-| `01-vision-and-usp.md` | Market positioning, 8 USPs, target users |
-| `02-architecture.md` | Adapter pattern, Beyond MSW, PGlite option |
-| `03-schema-dsl.md` | Field types, relations, computed fields, views |
-| `04-resolver-system.md` | Registry, resolvers, topological sort |
-| `05-adapters.md` | Fetch, Supabase, Firebase, GraphQL implementations |
-| `06-middleware.md` | Auth, Retry, Cache, Logger chain |
-| `07-openapi-generation.md` | Schema → OpenAPI 3.0 mapping |
-| `09-implementation-roadmap.md` | Phased plan, current status |
-| `10-security.md` | RLS, rate limiting, RBAC, ABAC, audit |
 
 > **Note**: Bundle reduction is achieved via CLI code generation - run `schemock generate --adapter supabase` for production and mock code is simply not included.
 
