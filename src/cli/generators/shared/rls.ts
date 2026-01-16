@@ -248,7 +248,13 @@ export function generateRLSError(code: CodeBuilder): void {
     code.line(');');
   });
   code.line();
+}
 
+/**
+ * Generate not found error helper (uses ApiError)
+ * Always needed regardless of RLS status
+ */
+export function generateNotFoundError(code: CodeBuilder): void {
   code.comment('Helper to create not found error');
   code.block('function createNotFoundError(entity: string, id: string): ApiError {', () => {
     code.line('return new ApiError(');

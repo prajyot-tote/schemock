@@ -8,6 +8,12 @@ import { join, dirname } from 'node:path';
 
 const execAsync = promisify(exec);
 
+// Project root where node_modules/typescript is installed
+const PROJECT_ROOT = join(dirname(import.meta.url.replace('file://', '')), '../../../../');
+
+// Path to type stubs for external modules
+const TYPE_STUBS_DIR = join(dirname(import.meta.url.replace('file://', '')), 'type-stubs');
+
 export interface CompileResult {
   success: boolean;
   errors?: string[];
@@ -16,6 +22,9 @@ export interface CompileResult {
 
 /**
  * Check if TypeScript code compiles without errors
+ *
+ * Uses type stubs for @mswjs/data and @faker-js/faker to enable full type checking
+ * of generated code, including db.* API usage validation.
  */
 export async function checkTypeScriptCompiles(
   filePath: string,
@@ -29,24 +38,37 @@ export async function checkTypeScriptCompiles(
       module: 'ESNext',
       moduleResolution: 'bundler',
       lib: ['ES2022', 'DOM'],
+      // Point to the project's node_modules for type definitions
+      typeRoots: [
+        join(PROJECT_ROOT, 'node_modules/@types'),
+        TYPE_STUBS_DIR,
+      ],
+      types: ['node'], // Include node types for Buffer, etc.
       strict: true,
       skipLibCheck: true,
       noEmit: true,
       esModuleInterop: true,
     },
-    include: [filePath, ...(additionalFiles || [])],
+    // Include type stubs for @mswjs/data and @faker-js/faker
+    include: [
+      filePath,
+      ...(additionalFiles || []),
+      join(TYPE_STUBS_DIR, '*.d.ts'),
+    ],
   };
 
   await writeFile(tsConfigPath, JSON.stringify(tsConfig, null, 2));
 
   try {
+    // Run tsc from project root where TypeScript is installed
     await execAsync(`npx tsc --project ${tsConfigPath}`, {
-      cwd: dirname(filePath),
+      cwd: PROJECT_ROOT,
     });
     return { success: true };
   } catch (error) {
     const execError = error as { stdout?: string; stderr?: string };
     const errorOutput = execError.stderr || execError.stdout || '';
+
     const errors = errorOutput
       .split('\n')
       .filter(line => line.includes('error TS'))

@@ -12,6 +12,7 @@ import {
   generateRLSContextType,
   generateBypassCheck,
   generateRLSError,
+  generateNotFoundError,
   collectBypassConditions,
   hasAnyRLS,
   getRLSImports,
@@ -40,6 +41,9 @@ export function generateMockClient(schemas: AnalyzedSchema[]): string {
 
   // Always generate the interceptor infrastructure
   generateRLSContextType(code);
+
+  // Always generate the not found error helper (needed for all entities)
+  generateNotFoundError(code);
 
   // RLS support
   if (schemasWithRLS) {
@@ -368,122 +372,120 @@ function generateEntityApiFactory(
 
   code.block(`${name}: {`, () => {
     // LIST
-    code.block(
-      `list: (options?: Types.QueryOptions<Types.${pascalName}Filter, ${includeType}>) =>`,
-      () => {
-        code.line(`executeRequest('${name}.list', (ctx) => {`);
-        code.indent();
-        if (hasJsonFields) {
-          code.line(`let rawItems = db.${name}.getAll() as unknown as Record<string, unknown>[];`);
-          code.line(`let items = rawItems.map(row => parseRow<Types.${pascalName}>(row, [${jsonFieldsStr}]));`);
-        } else {
-          code.line(`let items = db.${name}.getAll() as unknown as Types.${pascalName}[];`);
-        }
-        code.line();
-
-        // Apply RLS filter for select
-        if (hasRLS) {
-          code.comment('Apply RLS filter');
-          code.line(`items = items.filter(item => rls${pascalName}Select(item as unknown as Record<string, unknown>, ctx));`);
-          code.line();
-        }
-
-        // Filter
-        code.block('if (options?.where) {', () => {
-          code.line('items = applyFilter(items, options.where);');
-        });
-        code.line();
-
-        code.line('const total = items.length;');
-        code.line();
-
-        // Sort
-        code.block('if (options?.orderBy) {', () => {
-          code.line('const [field, dir] = Object.entries(options.orderBy)[0];');
-          code.block('items = [...items].sort((a, b) => {', () => {
-            code.line('const aVal = (a as Record<string, unknown>)[field] as string | number | Date;');
-            code.line('const bVal = (b as Record<string, unknown>)[field] as string | number | Date;');
-            code.line("if (aVal < bVal) return dir === 'asc' ? -1 : 1;");
-            code.line("if (aVal > bVal) return dir === 'asc' ? 1 : -1;");
-            code.line('return 0;');
-          }, '});');
-        });
-        code.line();
-
-        // Paginate
-        code.line('const limit = options?.limit ?? 20;');
-        code.line('const offset = options?.offset ?? 0;');
-        code.line('items = items.slice(offset, offset + limit);');
-        code.line();
-
-        // Load relations
-        if (hasRelations) {
-          code.block('if (options?.include?.length) {', () => {
-            code.block('items = items.map(item => {', () => {
-              code.line('const result = { ...item } as Record<string, unknown>;');
-
-              for (const rel of relations) {
-                code.block(`if (options.include!.includes('${rel.name}')) {`, () => {
-                  generateRelationLoad(code, schema, rel);
-                });
-              }
-
-              code.line(`return result as Types.${pascalName};`);
-            }, '});');
-          });
-          code.line();
-        }
-
-        code.line('return { data: items, meta: { total, limit, offset, hasMore: offset + limit < total } };');
-        code.dedent();
-        code.line('}),');
-      }
+    code.line(
+      `list: (options?: Types.QueryOptions<Types.${pascalName}Filter, ${includeType}>) =>`
     );
+    code.indent();
+    code.line(`executeRequest('${name}.list', (ctx) => {`);
+    code.indent();
+    if (hasJsonFields) {
+      code.line(`let rawItems = db.${name}.getAll() as unknown as Record<string, unknown>[];`);
+      code.line(`let items = rawItems.map(row => parseRow<Types.${pascalName}>(row, [${jsonFieldsStr}]));`);
+    } else {
+      code.line(`let items = db.${name}.getAll() as unknown as Types.${pascalName}[];`);
+    }
+    code.line();
+
+    // Apply RLS filter for select
+    if (hasRLS) {
+      code.comment('Apply RLS filter');
+      code.line(`items = items.filter(item => rls${pascalName}Select(item as unknown as Record<string, unknown>, ctx));`);
+      code.line();
+    }
+
+    // Filter
+    code.block('if (options?.where) {', () => {
+      code.line('items = applyFilter(items, options.where);');
+    });
+    code.line();
+
+    code.line('const total = items.length;');
+    code.line();
+
+    // Sort
+    code.block('if (options?.orderBy) {', () => {
+      code.line('const [field, dir] = Object.entries(options.orderBy)[0];');
+      code.block('items = [...items].sort((a, b) => {', () => {
+        code.line('const aVal = (a as Record<string, unknown>)[field] as string | number | Date;');
+        code.line('const bVal = (b as Record<string, unknown>)[field] as string | number | Date;');
+        code.line("if (aVal < bVal) return dir === 'asc' ? -1 : 1;");
+        code.line("if (aVal > bVal) return dir === 'asc' ? 1 : -1;");
+        code.line('return 0;');
+      }, '});');
+    });
+    code.line();
+
+    // Paginate
+    code.line('const limit = options?.limit ?? 20;');
+    code.line('const offset = options?.offset ?? 0;');
+    code.line('items = items.slice(offset, offset + limit);');
+    code.line();
+
+    // Load relations
+    if (hasRelations) {
+      code.block('if (options?.include?.length) {', () => {
+        code.block('items = items.map(item => {', () => {
+          code.line('const result = { ...item } as Record<string, unknown>;');
+
+          for (const rel of relations) {
+            code.block(`if (options.include!.includes('${rel.name}')) {`, () => {
+              generateRelationLoad(code, schema, rel);
+            });
+          }
+
+          code.line(`return result as Types.${pascalName};`);
+        }, '});');
+      });
+      code.line();
+    }
+
+    code.line('return { data: items, meta: { total, limit, offset, hasMore: offset + limit < total } };');
+    code.dedent();
+    code.line('}),');
+    code.dedent();
     code.line();
 
     // GET
-    code.block(
-      `get: (id: string, options?: { include?: ${includeType}[] }) =>`,
-      () => {
-        code.line(`executeRequest('${name}.get', (ctx) => {`);
-        code.indent();
-        code.line(`const rawItem = db.${name}.findFirst({ where: { id: { equals: id } } }) as unknown as Record<string, unknown> | null;`);
-        code.line(`if (!rawItem) throw createNotFoundError('${pascalName}', id);`);
-        if (hasJsonFields) {
-          code.line(`const item = parseRow<Types.${pascalName}>(rawItem, [${jsonFieldsStr}]);`);
-        } else {
-          code.line(`const item = rawItem as Types.${pascalName};`);
-        }
-        code.line();
+    code.line(`get: (id: string, options?: { include?: ${includeType}[] }) =>`);
+    code.indent();
+    code.line(`executeRequest('${name}.get', (ctx) => {`);
+    code.indent();
+    code.line(`const rawItem = db.${name}.findFirst({ where: { id: { equals: id } } }) as unknown as Record<string, unknown> | null;`);
+    code.line(`if (!rawItem) throw createNotFoundError('${pascalName}', id);`);
+    if (hasJsonFields) {
+      code.line(`const item = parseRow<Types.${pascalName}>(rawItem, [${jsonFieldsStr}]);`);
+    } else {
+      code.line(`const item = rawItem as Types.${pascalName};`);
+    }
+    code.line();
 
-        // Apply RLS check for select
-        if (hasRLS) {
-          code.comment('Apply RLS check');
-          code.block(`if (!rls${pascalName}Select(item as unknown as Record<string, unknown>, ctx)) {`, () => {
-            code.line(`throw createRLSError('select', '${pascalName}');`);
-          });
-          code.line();
-        }
+    // Apply RLS check for select
+    if (hasRLS) {
+      code.comment('Apply RLS check');
+      code.block(`if (!rls${pascalName}Select(item as unknown as Record<string, unknown>, ctx)) {`, () => {
+        code.line(`throw createRLSError('select', '${pascalName}');`);
+      });
+      code.line();
+    }
 
-        if (hasRelations) {
-          code.line('const result = { ...item } as Record<string, unknown>;');
-          code.line();
-          code.block('if (options?.include?.length) {', () => {
-            for (const rel of relations) {
-              code.block(`if (options.include.includes('${rel.name}')) {`, () => {
-                generateRelationLoad(code, schema, rel);
-              });
-            }
+    if (hasRelations) {
+      code.line('const result = { ...item } as Record<string, unknown>;');
+      code.line();
+      code.block('if (options?.include?.length) {', () => {
+        for (const rel of relations) {
+          code.block(`if (options.include.includes('${rel.name}')) {`, () => {
+            generateRelationLoad(code, schema, rel);
           });
-          code.line();
-          code.line(`return { data: result as Types.${pascalName} };`);
-        } else {
-          code.line('return { data: item };');
         }
-        code.dedent();
-        code.line('}),');
-      }
-    );
+      });
+      code.line();
+      code.line(`return { data: result as Types.${pascalName} };`);
+    } else {
+      code.line('return { data: item };');
+    }
+    code.dedent();
+    code.line('}),');
+    code.dedent();
     code.line();
 
     // CREATE
@@ -491,62 +493,64 @@ function generateEntityApiFactory(
     code.line();
 
     // UPDATE
-    code.block(`update: (id: string, input: Types.${pascalName}Update) =>`, () => {
-      code.line(`executeRequest('${name}.update', (ctx) => {`);
-      code.indent();
+    code.line(`update: (id: string, input: Types.${pascalName}Update) =>`);
+    code.indent();
+    code.line(`executeRequest('${name}.update', (ctx) => {`);
+    code.indent();
 
-      // Check RLS on existing item first
-      if (hasRLS) {
-        code.comment('Check RLS before update');
-        code.line(`const existing = db.${name}.findFirst({ where: { id: { equals: id } } }) as unknown as Record<string, unknown> | null;`);
-        code.line(`if (!existing) throw createNotFoundError('${pascalName}', id);`);
-        code.block(`if (!rls${pascalName}Update(existing, ctx)) {`, () => {
-          code.line(`throw createRLSError('update', '${pascalName}');`);
-        });
-        code.line();
-      }
+    // Check RLS on existing item first
+    if (hasRLS) {
+      code.comment('Check RLS before update');
+      code.line(`const existing = db.${name}.findFirst({ where: { id: { equals: id } } }) as unknown as Record<string, unknown> | null;`);
+      code.line(`if (!existing) throw createNotFoundError('${pascalName}', id);`);
+      code.block(`if (!rls${pascalName}Update(existing, ctx)) {`, () => {
+        code.line(`throw createRLSError('update', '${pascalName}');`);
+      });
+      code.line();
+    }
 
-      code.line(`const rawItem = db.${name}.update({`);
-      code.line('  where: { id: { equals: id } },');
-      code.line(`  // eslint-disable-next-line @typescript-eslint/no-explicit-any`);
-      code.line('  data: { ...input, updatedAt: new Date() } as any,');
-      code.line('}) as unknown as Record<string, unknown> | null;');
-      if (!hasRLS) {
-        code.line(`if (!rawItem) throw createNotFoundError('${pascalName}', id);`);
-      }
-      if (hasJsonFields) {
-        code.line(`return { data: parseRow<Types.${pascalName}>(rawItem!, [${jsonFieldsStr}]) };`);
-      } else {
-        code.line(`return { data: rawItem as Types.${pascalName} };`);
-      }
-      code.dedent();
-      code.line('}),');
-    });
+    code.line(`const rawItem = db.${name}.update({`);
+    code.line('  where: { id: { equals: id } },');
+    code.line(`  // eslint-disable-next-line @typescript-eslint/no-explicit-any`);
+    code.line('  data: { ...input, updatedAt: new Date() } as any,');
+    code.line('}) as unknown as Record<string, unknown> | null;');
+    if (!hasRLS) {
+      code.line(`if (!rawItem) throw createNotFoundError('${pascalName}', id);`);
+    }
+    if (hasJsonFields) {
+      code.line(`return { data: parseRow<Types.${pascalName}>(rawItem!, [${jsonFieldsStr}]) };`);
+    } else {
+      code.line(`return { data: rawItem as Types.${pascalName} };`);
+    }
+    code.dedent();
+    code.line('}),');
+    code.dedent();
     code.line();
 
     // DELETE
-    code.block('delete: (id: string) =>', () => {
-      code.line(`executeRequest('${name}.delete', (ctx) => {`);
-      code.indent();
+    code.line('delete: (id: string) =>');
+    code.indent();
+    code.line(`executeRequest('${name}.delete', (ctx) => {`);
+    code.indent();
 
-      // Check RLS on existing item first
-      if (hasRLS) {
-        code.comment('Check RLS before delete');
-        code.line(`const existing = db.${name}.findFirst({ where: { id: { equals: id } } }) as unknown as Record<string, unknown> | null;`);
-        code.line(`if (!existing) throw createNotFoundError('${pascalName}', id);`);
-        code.block(`if (!rls${pascalName}Delete(existing, ctx)) {`, () => {
-          code.line(`throw createRLSError('delete', '${pascalName}');`);
-        });
-        code.line();
-      }
+    // Check RLS on existing item first
+    if (hasRLS) {
+      code.comment('Check RLS before delete');
+      code.line(`const existing = db.${name}.findFirst({ where: { id: { equals: id } } }) as unknown as Record<string, unknown> | null;`);
+      code.line(`if (!existing) throw createNotFoundError('${pascalName}', id);`);
+      code.block(`if (!rls${pascalName}Delete(existing, ctx)) {`, () => {
+        code.line(`throw createRLSError('delete', '${pascalName}');`);
+      });
+      code.line();
+    }
 
-      code.line(`const item = db.${name}.delete({ where: { id: { equals: id } } });`);
-      if (!hasRLS) {
-        code.line(`if (!item) throw createNotFoundError('${pascalName}', id);`);
-      }
-      code.dedent();
-      code.line('}),');
-    });
+    code.line(`const item = db.${name}.delete({ where: { id: { equals: id } } });`);
+    if (!hasRLS) {
+      code.line(`if (!item) throw createNotFoundError('${pascalName}', id);`);
+    }
+    code.dedent();
+    code.line('}),');
+    code.dedent();
   }, '},');
   code.line();
 }
@@ -597,77 +601,78 @@ function generateCreateMethodFactory(
   const { name, pascalName, relations } = schema;
   const nestedRels = relations.filter((r) => r.type === 'hasMany' || r.type === 'hasOne');
 
-  code.block(`create: (input: Types.${pascalName}Create) =>`, () => {
-    code.line(`executeRequest('${name}.create', (ctx) => {`);
-    code.indent();
+  code.line(`create: (input: Types.${pascalName}Create) =>`);
+  code.indent();
+  code.line(`executeRequest('${name}.create', (ctx) => {`);
+  code.indent();
 
-    if (nestedRels.length > 0) {
-      // Extract nested creates
-      const relNames = nestedRels.map((r) => r.name).join(', ');
-      code.line(`const { ${relNames}, ...data } = input;`);
-      code.line();
-      code.line(`// eslint-disable-next-line @typescript-eslint/no-explicit-any`);
-      code.line(`const rawItem = db.${name}.create(data as any) as unknown as Record<string, unknown>;`);
-      if (hasJsonFields) {
-        code.line(`const item = parseRow<Types.${pascalName}>(rawItem, [${jsonFieldsStr}]);`);
-      } else {
-        code.line(`const item = rawItem as Types.${pascalName};`);
-      }
-      code.line();
-
-      // Check RLS on created item
-      if (hasRLS) {
-        code.comment('Check RLS on created item');
-        code.block(`if (!rls${pascalName}Insert(item as unknown as Record<string, unknown>, ctx)) {`, () => {
-          code.comment('Rollback by deleting');
-          code.line(`db.${name}.delete({ where: { id: { equals: item.id } } });`);
-          code.line(`throw createRLSError('insert', '${pascalName}');`);
-        });
-        code.line();
-      }
-
-      for (const rel of nestedRels) {
-        const targetDbName = toSafePropertyName(rel.resolvedTarget);
-        code.block(`if (${rel.name}) {`, () => {
-          if (rel.type === 'hasMany') {
-            code.block(`for (const nested of ${rel.name}) {`, () => {
-              code.line(`// eslint-disable-next-line @typescript-eslint/no-explicit-any`);
-              code.line(`db.${targetDbName}.create({ ...nested, ${rel.foreignKey}: item.id } as any);`);
-            });
-          } else {
-            code.line(`// eslint-disable-next-line @typescript-eslint/no-explicit-any`);
-            code.line(`db.${targetDbName}.create({ ...${rel.name}, ${rel.foreignKey}: item.id } as any);`);
-          }
-        });
-      }
-
-      code.line();
-      code.line('return { data: item };');
+  if (nestedRels.length > 0) {
+    // Extract nested creates
+    const relNames = nestedRels.map((r) => r.name).join(', ');
+    code.line(`const { ${relNames}, ...data } = input;`);
+    code.line();
+    code.line(`// eslint-disable-next-line @typescript-eslint/no-explicit-any`);
+    code.line(`const rawItem = db.${name}.create(data as any) as unknown as Record<string, unknown>;`);
+    if (hasJsonFields) {
+      code.line(`const item = parseRow<Types.${pascalName}>(rawItem, [${jsonFieldsStr}]);`);
     } else {
-      code.line(`// eslint-disable-next-line @typescript-eslint/no-explicit-any`);
-      code.line(`const rawItem = db.${name}.create(input as any) as unknown as Record<string, unknown>;`);
-      if (hasJsonFields) {
-        code.line(`const item = parseRow<Types.${pascalName}>(rawItem, [${jsonFieldsStr}]);`);
-      } else {
-        code.line(`const item = rawItem as Types.${pascalName};`);
-      }
+      code.line(`const item = rawItem as Types.${pascalName};`);
+    }
+    code.line();
 
-      // Check RLS on created item
-      if (hasRLS) {
-        code.line();
-        code.comment('Check RLS on created item');
-        code.block(`if (!rls${pascalName}Insert(item as unknown as Record<string, unknown>, ctx)) {`, () => {
-          code.comment('Rollback by deleting');
-          code.line(`db.${name}.delete({ where: { id: { equals: item.id } } });`);
-          code.line(`throw createRLSError('insert', '${pascalName}');`);
-        });
-      }
-
+    // Check RLS on created item
+    if (hasRLS) {
+      code.comment('Check RLS on created item');
+      code.block(`if (!rls${pascalName}Insert(item as unknown as Record<string, unknown>, ctx)) {`, () => {
+        code.comment('Rollback by deleting');
+        code.line(`db.${name}.delete({ where: { id: { equals: item.id } } });`);
+        code.line(`throw createRLSError('insert', '${pascalName}');`);
+      });
       code.line();
-      code.line('return { data: item };');
     }
 
-    code.dedent();
-    code.line('}),');
-  });
+    for (const rel of nestedRels) {
+      const targetDbName = toSafePropertyName(rel.resolvedTarget);
+      code.block(`if (${rel.name}) {`, () => {
+        if (rel.type === 'hasMany') {
+          code.block(`for (const nested of ${rel.name}) {`, () => {
+            code.line(`// eslint-disable-next-line @typescript-eslint/no-explicit-any`);
+            code.line(`db.${targetDbName}.create({ ...nested, ${rel.foreignKey}: item.id } as any);`);
+          });
+        } else {
+          code.line(`// eslint-disable-next-line @typescript-eslint/no-explicit-any`);
+          code.line(`db.${targetDbName}.create({ ...${rel.name}, ${rel.foreignKey}: item.id } as any);`);
+        }
+      });
+    }
+
+    code.line();
+    code.line('return { data: item };');
+  } else {
+    code.line(`// eslint-disable-next-line @typescript-eslint/no-explicit-any`);
+    code.line(`const rawItem = db.${name}.create(input as any) as unknown as Record<string, unknown>;`);
+    if (hasJsonFields) {
+      code.line(`const item = parseRow<Types.${pascalName}>(rawItem, [${jsonFieldsStr}]);`);
+    } else {
+      code.line(`const item = rawItem as Types.${pascalName};`);
+    }
+
+    // Check RLS on created item
+    if (hasRLS) {
+      code.line();
+      code.comment('Check RLS on created item');
+      code.block(`if (!rls${pascalName}Insert(item as unknown as Record<string, unknown>, ctx)) {`, () => {
+        code.comment('Rollback by deleting');
+        code.line(`db.${name}.delete({ where: { id: { equals: item.id } } });`);
+        code.line(`throw createRLSError('insert', '${pascalName}');`);
+      });
+    }
+
+    code.line();
+    code.line('return { data: item };');
+  }
+
+  code.dedent();
+  code.line('}),');
+  code.dedent();
 }
