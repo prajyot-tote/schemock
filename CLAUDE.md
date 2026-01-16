@@ -89,8 +89,11 @@ import { createAuthMiddleware, createCacheMiddleware } from 'schemock/middleware
 ## CLI Usage
 
 ```bash
-# Generate mock adapter code (development)
-npx schemock generate --adapter mock
+# Generate framework-agnostic code (types + client only)
+npx schemock generate
+
+# Generate with React Query hooks and SchemockProvider
+npx schemock generate --framework react
 
 # Generate Supabase adapter code (production)
 npx schemock generate --adapter supabase
@@ -98,6 +101,15 @@ npx schemock generate --adapter supabase
 # Generate for multiple targets
 npx schemock generate  # uses schemock.config.ts targets
 ```
+
+### Framework Option
+
+| Flag | Output |
+|------|--------|
+| `--framework none` (default) | `types.ts`, `client.ts`, `db.ts`, `seed.ts` |
+| `--framework react` | Above + `hooks.ts`, `provider.tsx` |
+
+Use `--framework react` for React/Next.js projects. Omit for Angular, Vue, Svelte, or vanilla JS.
 
 ## Implementation Status
 
@@ -371,8 +383,11 @@ manyToMany('tag', 'post_tags')
 ### CLI Commands
 
 ```bash
-# Generate all code from schemas
+# Generate framework-agnostic code (types + client)
 npx schemock generate
+
+# Generate with React hooks and provider
+npx schemock generate --framework react
 
 # Generate for specific adapter
 npx schemock generate --adapter supabase

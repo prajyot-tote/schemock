@@ -55,27 +55,51 @@ export const postSchema = defineData('post', {
 });
 ```
 
-Generate everything:
+Generate code:
 
 ```bash
+# Framework-agnostic (Angular, Vue, Svelte, vanilla JS)
 npx schemock generate
+
+# With React Query hooks
+npx schemock generate --framework react
 ```
 
-Use in your React app:
+Use the generated client (works with any framework):
 
 ```typescript
-import { useUsers, useCreateUser, useUser } from './generated';
+import { api } from './generated';
 
+// Full CRUD works instantly - no backend needed!
+const users = await api.user.list();
+const user = await api.user.create({ name: 'John', email: 'john@example.com' });
+await api.user.update(user.data.id, { name: 'John Doe' });
+await api.user.delete(user.data.id);
+```
+
+Or with React hooks (when using `--framework react`):
+
+```typescript
+import { useUsers, useCreateUser, SchemockProvider, createClient } from './generated';
+
+// Configure auth (optional)
+const client = createClient({
+  onRequest: (ctx) => {
+    ctx.headers.Authorization = `Bearer ${getToken()}`;
+    return ctx;
+  }
+});
+
+// Wrap app with provider
+<SchemockProvider client={client}>
+  <App />
+</SchemockProvider>
+
+// Use hooks
 function UserList() {
   const { data: users, isLoading } = useUsers();
   const createUser = useCreateUser();
-
-  // Full CRUD works instantly - no backend needed!
-}
-
-function UserProfile({ userId }: { userId: string }) {
-  // Fetch with relations
-  const { data: user } = useUser(userId, { include: ['posts'] });
+  // ...
 }
 ```
 
@@ -88,7 +112,7 @@ schemock <command> [options]
 | Command | Description |
 |---------|-------------|
 | `init [--template <name>]` | Initialize a new Schemock project |
-| `generate` | Generate TypeScript types, client, and hooks |
+| `generate` | Generate TypeScript types and client (+ hooks with `--framework react`) |
 | `generate:sql` | Generate PostgreSQL schema with RLS |
 | `generate:openapi` | Generate OpenAPI 3.0 specification |
 | `generate:postman` | Generate Postman collection |
@@ -100,6 +124,9 @@ schemock <command> [options]
 npx schemock generate [options]
 
   --adapter, -a <type>    Adapter: mock|supabase|firebase|fetch|graphql|pglite
+  --framework <type>      Framework: react|none (default: none)
+                          react: Generate React Query hooks + SchemockProvider
+                          none:  Framework-agnostic client only
   --output, -o <dir>      Output directory (default: ./src/generated)
   --config, -c <file>     Config file path
   --only <entities>       Only generate for these entities (comma-separated)
