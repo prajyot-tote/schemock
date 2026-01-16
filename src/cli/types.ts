@@ -178,6 +178,8 @@ export interface GenerationTarget {
 
   /** Backend to use for server targets (e.g., nextjs-api uses supabase under the hood) */
   backend?: 'supabase' | 'firebase' | 'pglite' | 'fetch';
+  /** Framework integration (react generates hooks/provider, none is framework-agnostic) */
+  framework?: 'react' | 'none';
   /** Middleware configuration for this target */
   middleware?: TargetMiddlewareConfig;
   /** Path to custom hooks file for lifecycle hooks */
@@ -529,6 +531,9 @@ export interface AnalyzedEndpoint {
 /**
  * Options for the generate command
  */
+/** Framework type for generated code */
+export type FrameworkType = 'react' | 'none';
+
 export interface GenerateOptions {
   /** Adapter type to generate */
   adapter?: string;
@@ -548,6 +553,8 @@ export interface GenerateOptions {
   exclude?: string[];
   /** Generate form schemas (Zod validation, defaults, column metadata) */
   withFormSchemas?: boolean;
+  /** Framework integration (react generates hooks/provider, none is framework-agnostic) */
+  framework?: FrameworkType;
 }
 
 /**

@@ -25,6 +25,8 @@ interface CLIOptions {
   readme?: boolean;
   // Form schema options
   withFormSchemas?: boolean;
+  // Framework options
+  framework?: 'react' | 'none';
   // AI setup options
   cursor?: boolean;
   force?: boolean;
@@ -74,6 +76,8 @@ function parseArgs(args: string[]): { command: string; options: CLIOptions; posi
       options.readme = true;
     } else if (arg === '--with-form-schemas') {
       options.withFormSchemas = true;
+    } else if (arg === '--framework') {
+      options.framework = args[++i] as 'react' | 'none';
     } else if (arg === '--cursor') {
       options.cursor = true;
     } else if (arg === '--force') {
@@ -112,6 +116,9 @@ Generate Options:
   --adapter, -a <type>    Adapter type: mock|supabase|firebase|fetch|graphql (default: mock)
   --output, -o <dir>      Output directory (default: ./src/generated)
   --config, -c <file>     Config file path (default: ./schemock.config.ts)
+  --framework <type>      Framework integration: react|none (default: none)
+                          react: Generate React Query hooks and SchemockProvider
+                          none:  Generate only framework-agnostic client code
   --only <entities>       Only generate for these entities (comma-separated)
                           Applies to ALL targets, overrides config
   --exclude <entities>    Exclude these entities (comma-separated)
@@ -142,7 +149,8 @@ Other Options:
 
 Examples:
   schemock init --template basic
-  schemock generate
+  schemock generate                           # Framework-agnostic (types + client)
+  schemock generate --framework react         # With React Query hooks
   schemock generate --adapter mock --output ./src/api
   schemock generate --adapter supabase
   schemock generate --only user,post          # Only generate User and Post
@@ -349,6 +357,7 @@ async function generateCommand(options: CLIOptions): Promise<void> {
     only: options.only,
     exclude: options.exclude,
     withFormSchemas: options.withFormSchemas,
+    framework: options.framework,
   });
 }
 
