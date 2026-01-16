@@ -214,8 +214,8 @@ async function generateClientTarget(
   const framework = target.framework || options.framework || 'none';
   if (framework === 'react') {
     const providerCode = generateProvider();
-    await writeOutput(join(outputDir, 'provider.ts'), providerCode, options.dryRun);
-    files.push('provider.ts');
+    await writeOutput(join(outputDir, 'provider.tsx'), providerCode, options.dryRun);
+    files.push('provider.tsx');
 
     const hooksCode = generateHooks(targetSchemas);
     await writeOutput(join(outputDir, 'hooks.ts'), hooksCode, options.dryRun);

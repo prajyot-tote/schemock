@@ -197,8 +197,8 @@ export async function generate(options: GenerateOptions): Promise<void> {
   if (framework === 'react') {
     console.log('\n🎣 Generating React Context provider...');
     const providerCode = generateProvider();
-    await writeOutput(join(outputDir, 'provider.ts'), providerCode, options.dryRun);
-    console.log('   ✓ provider.ts (SchemockProvider + useSchemockClient)');
+    await writeOutput(join(outputDir, 'provider.tsx'), providerCode, options.dryRun);
+    console.log('   ✓ provider.tsx (SchemockProvider + useSchemockClient)');
 
     console.log('\n⚛️  Generating React hooks...');
     const hooksCode = generateHooks(analyzed);
