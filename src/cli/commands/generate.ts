@@ -31,6 +31,7 @@ import { generateFirebaseClient } from '../generators/firebase/client';
 import { generateFetchClient } from '../generators/fetch/client';
 import { generatePGliteDb, generatePGliteClient, generatePGliteSeed } from '../generators/pglite';
 import { generateHooks } from '../generators/hooks';
+import { generateProvider } from '../generators/provider';
 import { generateFormSchemas } from '../generators/form-schemas';
 
 // Multi-target generation
@@ -191,14 +192,20 @@ export async function generate(options: GenerateOptions): Promise<void> {
       throw new Error(`Unknown adapter: ${adapter}`);
   }
 
-  // 7. Generate hooks (always)
+  // 7. Generate provider (always - hooks depend on it)
+  console.log('\n🎣 Generating React Context provider...');
+  const providerCode = generateProvider();
+  await writeOutput(join(outputDir, 'provider.ts'), providerCode, options.dryRun);
+  console.log('   ✓ provider.ts (SchemockProvider + useSchemockClient)');
+
+  // 8. Generate hooks (always)
   console.log('\n⚛️  Generating React hooks...');
   const hooksCode = generateHooks(analyzed);
   await writeOutput(join(outputDir, 'hooks.ts'), hooksCode, options.dryRun);
   const hookCount = analyzed.filter((s) => !s.isJunctionTable).length * 5; // 5 hooks per entity
   console.log(`   ✓ hooks.ts (${hookCount} hooks)`);
 
-  // 8. Generate index.ts
+  // 9. Generate index.ts
   console.log('\n📦 Generating barrel exports...');
   const indexCode = generateIndex(adapter, analyzedEndpoints.length > 0);
   await writeOutput(join(outputDir, 'index.ts'), indexCode, options.dryRun);
@@ -351,7 +358,8 @@ function generateIndex(adapter: string, hasEndpoints: boolean = false): string {
     '',
     "export * from './types';",
     "export * from './hooks';",
-    "export { api } from './client';",
+    "export * from './provider';",
+    "export { api, createClient } from './client';",
   ];
 
   if (adapter === 'mock') {

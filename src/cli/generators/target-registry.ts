@@ -36,6 +36,7 @@ import { generateFirebaseClient } from './firebase/client';
 import { generateFetchClient } from './fetch/client';
 import { generatePGliteDb, generatePGliteClient, generatePGliteSeed } from './pglite';
 import { generateHooks } from './hooks';
+import { generateProvider } from './provider';
 
 // Server target generators
 import { generateNextjsApiTarget } from './nextjs-api';
@@ -208,6 +209,11 @@ async function generateClientTarget(
       console.log('   ⚠️  GraphQL target not yet implemented');
       break;
   }
+
+  // Generate provider (hooks depend on it)
+  const providerCode = generateProvider();
+  await writeOutput(join(outputDir, 'provider.ts'), providerCode, options.dryRun);
+  files.push('provider.ts');
 
   // Generate hooks
   const hooksCode = generateHooks(targetSchemas);
@@ -434,7 +440,8 @@ function generateClientIndex(targetType: TargetType, hasEndpoints: boolean = fal
     '',
     "export * from './types';",
     "export * from './hooks';",
-    "export { api } from './client';",
+    "export * from './provider';",
+    "export { api, createClient } from './client';",
   ];
 
   if (targetType === 'mock') {

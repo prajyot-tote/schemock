@@ -210,15 +210,15 @@ To modify generated types, hooks, or clients:
 
 The generated mock client uses a production-ready interceptor pattern for centralized auth and error handling.
 
-### Usage
+### Usage with React Hooks (Recommended)
 
-```typescript
-import { createClient } from './generated/client';
-import { createMockJwt } from 'schemock/middleware';
+Use `SchemockProvider` to inject a configured client into all generated hooks:
 
-// Configure once at app startup
+```tsx
+import { SchemockProvider, createClient, useUsers } from './generated';
+
+// 1. Create configured client at app startup
 const api = createClient({
-  // Centralized auth - runs before every request
   onRequest: (ctx) => {
     const token = localStorage.getItem('authToken');
     if (token) {
@@ -226,15 +226,42 @@ const api = createClient({
     }
     return ctx;
   },
-
-  // Centralized error handling
   onError: (error) => {
     if (error.status === 401) {
       window.location.href = '/login';
     }
-    if (error.status === 403) {
-      toast.error('Access denied');
-    }
+  }
+});
+
+// 2. Wrap your app with SchemockProvider
+function App() {
+  return (
+    <SchemockProvider client={api}>
+      <MyComponent />
+    </SchemockProvider>
+  );
+}
+
+// 3. Hooks automatically use the configured client
+function MyComponent() {
+  const { data } = useUsers(); // Auth headers included automatically
+  return <div>{data?.data.map(u => u.name)}</div>;
+}
+```
+
+### Direct API Usage (Without Hooks)
+
+```typescript
+import { createClient } from './generated/client';
+
+const api = createClient({
+  onRequest: (ctx) => {
+    ctx.headers.Authorization = `Bearer ${getToken()}`;
+    return ctx;
+  },
+  onError: (error) => {
+    if (error.status === 401) window.location.href = '/login';
+    if (error.status === 403) toast.error('Access denied');
   }
 });
 
@@ -247,6 +274,8 @@ const posts = await api.post.list();
 | Export | Purpose |
 |--------|---------|
 | `createClient(config?)` | Factory to create configured client |
+| `SchemockProvider` | React provider for client injection into hooks |
+| `useSchemockClient()` | Hook to access configured client from context |
 | `ClientConfig` | Type for interceptor configuration |
 | `RequestContext` | Type for onRequest hook |
 | `ApiError` | Error class with status codes |

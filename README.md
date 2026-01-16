@@ -1148,6 +1148,56 @@ const user = await api.user.get('123');
 await api.post.create({ title: 'Hello', authorId: '123' });
 ```
 
+### Using with React Hooks (SchemockProvider)
+
+To use the configured client with generated React hooks, wrap your app with `SchemockProvider`:
+
+```tsx
+import { SchemockProvider, createClient, useUsers, useCreateUser } from './generated';
+
+// 1. Create configured client
+const api = createClient({
+  onRequest: (ctx) => {
+    const token = localStorage.getItem('authToken');
+    if (token) {
+      ctx.headers.Authorization = `Bearer ${token}`;
+    }
+    return ctx;
+  },
+  onError: (error) => {
+    if (error.status === 401) window.location.href = '/login';
+  }
+});
+
+// 2. Wrap your app
+function App() {
+  return (
+    <SchemockProvider client={api}>
+      <UserList />
+    </SchemockProvider>
+  );
+}
+
+// 3. Hooks automatically use the configured client
+function UserList() {
+  const { data, isLoading } = useUsers();
+  const createUser = useCreateUser();
+
+  if (isLoading) return <div>Loading...</div>;
+
+  return (
+    <div>
+      {data?.data.map(user => <div key={user.id}>{user.name}</div>)}
+      <button onClick={() => createUser.mutate({ name: 'New User' })}>
+        Add User
+      </button>
+    </div>
+  );
+}
+```
+
+Without `SchemockProvider`, hooks use the default unconfigured client (no auth).
+
 ### Creating Mock JWT Tokens
 
 For testing different user contexts:
