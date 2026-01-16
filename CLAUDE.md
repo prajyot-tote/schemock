@@ -370,6 +370,52 @@ hasOne('profile', 'userId')
 manyToMany('tag', 'post_tags')
 ```
 
+### Row-Level Security (RLS)
+
+Add `rls` to schema options to enable row-level security:
+
+**Scope-based (simple):**
+```typescript
+export const postSchema = defineData('post', {
+  id: field.uuid(),
+  authorId: field.ref('user'),
+  title: field.string(),
+}, {
+  rls: {
+    // field: row column, contextKey: JWT/context key
+    scope: [{ field: 'authorId', contextKey: 'userId' }],
+    // Bypass for specific roles
+    bypass: [{ contextKey: 'role', values: ['admin'] }],
+  },
+});
+```
+
+**Custom filters (advanced):**
+```typescript
+export const postSchema = defineData('post', {
+  id: field.uuid(),
+  authorId: field.ref('user'),
+  published: field.boolean(),
+}, {
+  rls: {
+    select: (row, ctx) => row.published || row.authorId === ctx?.userId,
+    insert: (row, ctx) => row.authorId === ctx?.userId,
+    update: (row, ctx) => row.authorId === ctx?.userId,
+    delete: (_row, ctx) => ctx?.role === 'admin',
+  },
+});
+```
+
+**RLS Context** comes from JWT token via `createClient` interceptor:
+```typescript
+const api = createClient({
+  onRequest: (ctx) => {
+    ctx.headers.Authorization = `Bearer ${token}`; // JWT with { userId, role }
+    return ctx;
+  }
+});
+```
+
 ### Common Tasks
 
 | Task | What to do |

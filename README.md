@@ -520,20 +520,51 @@ const BulkDeleteEndpoint = defineEndpoint('/api/posts/bulk-delete', {
 
 ### Row-Level Security (RLS)
 
+**Scope-based RLS (simple - recommended):**
+
 ```typescript
 const Post = defineData('post', {
   id: field.uuid(),
   authorId: field.ref('user'),
+  tenantId: field.uuid(),
   title: field.string(),
+}, {
+  rls: {
+    // Rows filtered by field matching context key
+    scope: [{ field: 'authorId', contextKey: 'userId' }],
+    // Bypass RLS for admins
+    bypass: [{ contextKey: 'role', values: ['admin'] }],
+  },
+});
+```
+
+**Custom filter functions (advanced):**
+
+```typescript
+const Post = defineData('post', {
+  id: field.uuid(),
+  authorId: field.ref('user'),
   published: field.boolean().default(false),
 }, {
   rls: {
-    scope: [{ row: 'authorId', context: 'userId' }],
-    select: (row, ctx) => row.published || row.authorId === ctx.userId,
-    insert: (row, ctx) => row.authorId === ctx.userId,
-    update: (row, ctx) => row.authorId === ctx.userId,
-    delete: (row, ctx) => row.authorId === ctx.userId,
-    bypass: [{ when: (ctx) => ctx.role === 'admin' }],
+    // Custom logic per operation
+    select: (row, ctx) => row.published || row.authorId === ctx?.userId,
+    insert: (row, ctx) => row.authorId === ctx?.userId,
+    update: (row, ctx) => row.authorId === ctx?.userId,
+    delete: (_row, ctx) => ctx?.role === 'admin',
+  },
+});
+```
+
+**Raw SQL policies (for PGlite/Supabase):**
+
+```typescript
+const Post = defineData('post', { /* ... */ }, {
+  rls: {
+    sql: {
+      select: "author_id = current_setting('app.userId')::uuid OR published = true",
+      insert: "author_id = current_setting('app.userId')::uuid",
+    },
   },
 });
 ```
