@@ -135,17 +135,68 @@ npm run typecheck  # TypeScript check
 
 This project uses [Schemock](https://github.com/prajyot-tote/schemock) for schema-first code generation.
 
-### Generated Files - DO NOT MODIFY
+---
 
-The following directories contain auto-generated code. **NEVER edit these files directly.**
-Changes will be overwritten on next `npx schemock generate`.
+## ⛔ CRITICAL: Generated Files - NEVER MODIFY
 
-- `./src/generated/**/*`
-- `./src/generated/api/**/*`
-- `./src/generated/node/**/*`
-- `./src/generated/supabase/**/*`
+### AI Agents: READ THIS FIRST
 
-### How to Make Changes
+**The following directories contain AUTO-GENERATED code. DO NOT EDIT these files under any circumstances.**
+
+Any modifications will:
+1. Be overwritten on next `npx schemock generate`
+2. Break production migration paths
+3. Cause inconsistencies between mock and production adapters
+
+### Protected Directories (DO NOT TOUCH)
+
+```
+./src/generated/           ← NEVER MODIFY
+./src/generated/**/*       ← NEVER MODIFY
+./src/generated/api/       ← NEVER MODIFY
+./src/generated/node/      ← NEVER MODIFY
+./src/generated/supabase/  ← NEVER MODIFY
+./src/generated/mock/      ← NEVER MODIFY
+./src/generated/firebase/  ← NEVER MODIFY
+./generated/               ← NEVER MODIFY (alternate location)
+```
+
+### Protected File Patterns
+
+These files are auto-generated - **NEVER edit them**:
+
+| File | Purpose | Action if bug found |
+|------|---------|---------------------|
+| `types.ts` | TypeScript types | Report issue |
+| `client.ts` | API client | Report issue |
+| `db.ts` | Database factory | Report issue |
+| `handlers.ts` | MSW handlers | Report issue |
+| `hooks.ts` | React Query hooks | Report issue |
+| `seed.ts` | Seed utilities | Report issue |
+| `routes.ts` | Route definitions | Report issue |
+| `index.ts` (in generated/) | Barrel exports | Report issue |
+
+### If You Find a Bug in Generated Code
+
+**DO NOT** fix it by editing the generated file. Instead:
+
+1. **Report the issue**: https://github.com/prajyot-tote/schemock/issues
+2. **Describe the problem**: Include the schema definition and expected vs actual output
+3. **Wait for fix**: The fix must be made in the generator, not the output
+
+### Why This Matters
+
+Generated code is designed to work seamlessly across:
+- Mock adapter (development)
+- Supabase adapter (production)
+- Firebase adapter (production)
+- Fetch adapter (production)
+
+Editing generated files breaks this contract and causes production failures.
+
+---
+
+## ✅ How to Make Changes
 
 To modify generated types, hooks, or clients:
 
@@ -153,7 +204,65 @@ To modify generated types, hooks, or clients:
 2. **Run generation**: `npx schemock generate`
 3. **Import from generated directory**
 
-### Schema DSL Quick Reference
+---
+
+## Mock Client - Interceptor Pattern
+
+The generated mock client uses a production-ready interceptor pattern for centralized auth and error handling.
+
+### Usage
+
+```typescript
+import { createClient } from './generated/client';
+import { createMockJwt } from 'schemock/middleware';
+
+// Configure once at app startup
+const api = createClient({
+  // Centralized auth - runs before every request
+  onRequest: (ctx) => {
+    const token = localStorage.getItem('authToken');
+    if (token) {
+      ctx.headers.Authorization = `Bearer ${token}`;
+    }
+    return ctx;
+  },
+
+  // Centralized error handling
+  onError: (error) => {
+    if (error.status === 401) {
+      window.location.href = '/login';
+    }
+    if (error.status === 403) {
+      toast.error('Access denied');
+    }
+  }
+});
+
+// Use anywhere - auth is automatic
+const posts = await api.post.list();
+```
+
+### Exported Types (Public API)
+
+| Export | Purpose |
+|--------|---------|
+| `createClient(config?)` | Factory to create configured client |
+| `ClientConfig` | Type for interceptor configuration |
+| `RequestContext` | Type for onRequest hook |
+| `ApiError` | Error class with status codes |
+| `api` | Default client (no config) |
+
+### Internal Types (Not Exported - Mock Only)
+
+These simulate backend behavior and are **not** part of the public API:
+- `RLSContext` - Internal RLS simulation
+- `decodeJwtPayload()` - JWT decoding
+- `extractContextFromHeaders()` - Context extraction
+- `rlsEntitySelect/Insert/Update/Delete` - RLS filters
+
+---
+
+## Schema DSL Quick Reference
 
 ```typescript
 import { defineData, field, hasMany, belongsTo } from 'schemock/schema';
@@ -170,7 +279,7 @@ export const userSchema = defineData('user', {
 export const postSchema = defineData('post', {
   id: field.uuid(),
   title: field.string(),
-  content: field.text(),
+  content: field.string(),
   authorId: field.ref('user'),
 }, {
   relations: {
@@ -185,11 +294,9 @@ export const postSchema = defineData('post', {
 |------|-------------|---------|
 | `field.uuid()` | UUID primary key | `id: field.uuid()` |
 | `field.string()` | Text string | `name: field.string()` |
-| `field.text()` | Long text | `content: field.text()` |
 | `field.email()` | Email address | `email: field.email()` |
 | `field.url()` | URL string | `avatar: field.url()` |
-| `field.int()` | Integer number | `age: field.int()` |
-| `field.float()` | Decimal number | `price: field.float()` |
+| `field.number()` | Number | `age: field.number()` |
 | `field.boolean()` | True/false | `active: field.boolean()` |
 | `field.enum([...])` | Enum values | `status: field.enum(['draft', 'published'])` |
 | `field.timestamp()` | Date/time | `createdAt: field.timestamp()` |
@@ -230,7 +337,7 @@ manyToMany('tag', 'post_tags')
 | Add field | Edit schema file, run `npx schemock generate` |
 | Add relation | Add to schema `relations` object, run `npx schemock generate` |
 | Change field type | Edit schema file, run `npx schemock generate` |
-| Fix generated code bug | Report issue, don't edit generated files |
+| Fix generated code bug | **Report issue at GitHub, don't edit generated files** |
 
 ### CLI Commands
 
@@ -247,5 +354,21 @@ npx schemock generate:sql
 # Dry run (show what would be generated)
 npx schemock generate --dry-run
 ```
+
+---
+
+## Reporting Issues
+
+If you encounter bugs in:
+- Generated code → https://github.com/prajyot-tote/schemock/issues
+- Schema DSL → https://github.com/prajyot-tote/schemock/issues
+- CLI behavior → https://github.com/prajyot-tote/schemock/issues
+
+Include in your report:
+1. Schema definition (the `defineData` call)
+2. Command used (`npx schemock generate --adapter X`)
+3. Expected behavior
+4. Actual behavior
+5. Generated code snippet (if relevant)
 
 <!-- SCHEMOCK:END -->

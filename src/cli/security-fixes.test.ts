@@ -165,8 +165,8 @@ describe('Config Loading Security', () => {
   });
 });
 
-describe('RLS Context - Browser Compatible', () => {
-  it('should generate browser-compatible context management', async () => {
+describe('RLS Context - Interceptor Pattern', () => {
+  it('should generate production-ready interceptor infrastructure', async () => {
     const { generateRLSContextType, getRLSImports } = await import('./generators/shared/rls');
     const { CodeBuilder } = await import('./utils/code-builder');
 
@@ -174,24 +174,35 @@ describe('RLS Context - Browser Compatible', () => {
     generateRLSContextType(code);
     const generated = code.toString();
 
-    // Should use simple global context (browser-compatible)
-    expect(generated).toContain('currentContext');
+    // Should NOT use global state or Node.js-only features
     expect(generated).not.toContain('AsyncLocalStorage');
     expect(generated).not.toContain('async_hooks');
 
-    // Should provide runWithContext for proper scoping
-    expect(generated).toContain('runWithContext');
-    expect(generated).toContain('runWithContextAsync');
+    // Should provide ClientConfig interface for interceptors
+    expect(generated).toContain('interface ClientConfig');
+    expect(generated).toContain('onRequest');
+    expect(generated).toContain('onError');
 
-    // Should have context save/restore in runWithContext
-    expect(generated).toContain('previousContext');
+    // Should provide RequestContext interface
+    expect(generated).toContain('interface RequestContext');
+    expect(generated).toContain('headers: Record<string, string>');
+    expect(generated).toContain('operation: string');
+
+    // Should provide ApiError class with status codes
+    expect(generated).toContain('class ApiError');
+    expect(generated).toContain('status: number');
+    expect(generated).toContain('code: string');
+
+    // Should have context extraction from headers
+    expect(generated).toContain('extractContextFromHeaders');
+    expect(generated).toContain('decodeJwtPayload');
 
     // getRLSImports should return empty string (no Node.js-only imports)
     const imports = getRLSImports();
     expect(imports).toBe('');
   });
 
-  it('should generate getContext that returns current context', async () => {
+  it('should extract context from Authorization header param', async () => {
     const { generateRLSContextType } = await import('./generators/shared/rls');
     const { CodeBuilder } = await import('./utils/code-builder');
 
@@ -199,7 +210,10 @@ describe('RLS Context - Browser Compatible', () => {
     generateRLSContextType(code);
     const generated = code.toString();
 
-    // getContext should return the current context directly
-    expect(generated).toContain('return currentContext');
+    // extractContextFromHeaders should accept headers as parameter (not read from global)
+    expect(generated).toContain('extractContextFromHeaders(headers: Record<string, string>)');
+    expect(generated).toContain('Authorization');
+    expect(generated).toContain('Bearer ');
+    expect(generated).toContain('decodeJwtPayload(token)');
   });
 });

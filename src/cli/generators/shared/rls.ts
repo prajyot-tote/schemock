@@ -20,107 +20,115 @@ export function getRLSImports(): string {
 }
 
 /**
- * Generate generic RLS context type definition
+ * Generate RLS context types and interceptor infrastructure
  *
- * Uses a simple global context that works in both browsers and Node.js.
- * This is appropriate for the mock adapter since browsers are single-threaded
- * and the mock adapter is for development purposes.
+ * Uses a production-ready interceptor pattern like axios/fetch wrappers.
+ * User configures auth once via onRequest interceptor, errors via onError.
  */
 export function generateRLSContextType(code: CodeBuilder): void {
-  code.comment('Row-Level Security Context (generic key-value)');
-  code.block('export interface RLSContext {', () => {
+  code.comment('=============================================================================');
+  code.comment('RLS Context & Client Configuration');
+  code.comment('');
+  code.comment('Production-ready interceptor pattern for centralized auth and error handling.');
+  code.comment('Configure once at app startup, auth headers are added to every request.');
+  code.comment('=============================================================================');
+  code.line();
+
+  code.comment('RLS Context - internal type for mock RLS simulation (not exported)');
+  code.block('interface RLSContext {', () => {
     code.line('[key: string]: unknown;');
   }, '}');
   code.line();
 
-  code.comment('=============================================================================');
-  code.comment('Browser-Compatible RLS Context Storage');
-  code.comment('');
-  code.comment('Uses a simple global context that works in both browsers and Node.js.');
-  code.comment('This is appropriate for development/mock scenarios where concurrent');
-  code.comment('request isolation is not required.');
-  code.comment('=============================================================================');
+  code.comment('Request context passed to onRequest interceptor');
+  code.block('export interface RequestContext {', () => {
+    code.line('headers: Record<string, string>;');
+    code.line('operation: string;  // e.g., "post.list", "user.create"');
+  }, '}');
   code.line();
 
-  code.comment('Global context storage - works in browsers and Node.js');
-  code.line('let currentContext: RLSContext | null = null;');
+  code.comment('API Error with HTTP-like status codes');
+  code.block('export class ApiError extends Error {', () => {
+    code.line('readonly status: number;');
+    code.line('readonly code: string;');
+    code.line('readonly operation: string;');
+    code.line();
+    code.block('constructor(message: string, status: number, code: string, operation: string) {', () => {
+      code.line('super(message);');
+      code.line('this.name = "ApiError";');
+      code.line('this.status = status;');
+      code.line('this.code = code;');
+      code.line('this.operation = operation;');
+    });
+  }, '}');
   code.line();
 
   code.multiDocComment([
-    'Set RLS context for the current execution.',
-    '',
-    '@param ctx - The RLS context to set, or null to clear',
+    'Client configuration for interceptors.',
     '',
     '@example',
     '```typescript',
-    '// Set context for a request',
-    "setContext({ userId: 'user-123', role: 'admin' });",
-    '',
-    '// Clear context',
-    'setContext(null);',
-    '```',
-  ]);
-  code.block('export function setContext(ctx: RLSContext | null): void {', () => {
-    code.line('currentContext = ctx;');
-  });
-  code.line();
-
-  code.multiDocComment([
-    'Get RLS context for the current execution.',
-    '',
-    '@returns The current RLS context, or null if not set',
-  ]);
-  code.block('export function getContext(): RLSContext | null {', () => {
-    code.line('return currentContext;');
-  });
-  code.line();
-
-  code.multiDocComment([
-    'Run a function with RLS context.',
-    'Context is set before the function runs and restored after.',
-    '',
-    '@param ctx - The RLS context to use',
-    '@param fn - The function to run with the context',
-    '@returns The result of the function',
-    '',
-    '@example',
-    '```typescript',
-    '// Run with context',
-    "const result = runWithContext({ userId: '123' }, () => {",
-    '  return api.posts.list();',
+    'const api = createClient({',
+    '  onRequest: (ctx) => {',
+    '    const token = localStorage.getItem("token");',
+    '    if (token) {',
+    '      ctx.headers.Authorization = `Bearer ${token}`;',
+    '    }',
+    '    return ctx;',
+    '  },',
+    '  onError: (error) => {',
+    '    if (error.status === 401) {',
+    '      window.location.href = "/login";',
+    '    }',
+    '  }',
     '});',
     '```',
   ]);
-  code.block('export function runWithContext<T>(ctx: RLSContext | null, fn: () => T): T {', () => {
-    code.line('const previousContext = currentContext;');
-    code.line('currentContext = ctx;');
+  code.block('export interface ClientConfig {', () => {
+    code.multiDocComment([
+      'Called before each API operation.',
+      'Use this to add auth headers, logging, etc.',
+    ]);
+    code.line('onRequest?: (ctx: RequestContext) => RequestContext | Promise<RequestContext>;');
+    code.line();
+    code.multiDocComment([
+      'Called when an error occurs.',
+      'Use this for centralized error handling (401 redirect, toast notifications, etc.)',
+    ]);
+    code.line('onError?: (error: ApiError) => void | Promise<void>;');
+  }, '}');
+  code.line();
+
+  code.comment('Decode JWT payload without validation (mock mode trusts the token)');
+  code.block('function decodeJwtPayload(token: string): RLSContext | null {', () => {
     code.block('try {', () => {
-      code.line('return fn();');
-    }, '} finally {');
+      code.line('const parts = token.split(".");');
+      code.line('if (parts.length !== 3) return null;');
+      code.line();
+      code.line('const payload = parts[1].replace(/-/g, "+").replace(/_/g, "/");');
+      code.line('const decoded = typeof atob === "function"');
+      code.line('  ? atob(payload)');
+      code.line('  : Buffer.from(payload, "base64").toString("utf-8");');
+      code.line();
+      code.line('return JSON.parse(decoded);');
+    }, '} catch {');
     code.indent();
-    code.line('currentContext = previousContext;');
+    code.line('return null;');
     code.dedent();
     code.line('}');
   });
   code.line();
 
-  code.multiDocComment([
-    'Async version of runWithContext for async functions.',
-    '',
-    '@param ctx - The RLS context to use',
-    '@param fn - The async function to run with the context',
-    '@returns Promise resolving to the result of the function',
-  ]);
-  code.block('export async function runWithContextAsync<T>(ctx: RLSContext | null, fn: () => Promise<T>): Promise<T> {', () => {
-    code.line('const previousContext = currentContext;');
-    code.line('currentContext = ctx;');
-    code.block('try {', () => {
-      code.line('return await fn();');
-    }, '} finally {');
-    code.indent();
-    code.line('currentContext = previousContext;');
-    code.dedent();
-    code.line('}');
+  code.comment('Extract RLS context from request headers');
+  code.block('function extractContextFromHeaders(headers: Record<string, string>): RLSContext | null {', () => {
+    code.line('const authHeader = headers["Authorization"] || headers["authorization"];');
+    code.line('if (!authHeader) return null;');
+    code.line();
+    code.line('const token = authHeader.startsWith("Bearer ")');
+    code.line('  ? authHeader.slice(7)');
+    code.line('  : authHeader;');
+    code.line();
+    code.line('return token ? decodeJwtPayload(token) : null;');
   });
   code.line();
 }
@@ -227,16 +235,28 @@ export function hasAnyRLS(schemas: AnalyzedSchema[]): boolean {
 }
 
 /**
- * Generate RLS error class
+ * Generate RLS error helper (uses ApiError)
  */
 export function generateRLSError(code: CodeBuilder): void {
-  code.comment('RLS Error for unauthorized access');
-  code.block('export class RLSError extends Error {', () => {
-    code.line('readonly code = "RLS_DENIED";');
-    code.block('constructor(operation: string, entity: string) {', () => {
-      code.line('super(`Access denied: ${operation} on ${entity}`);');
-      code.line('this.name = "RLSError";');
-    });
-  }, '}');
+  code.comment('Helper to create RLS denial error');
+  code.block('function createRLSError(operation: string, entity: string): ApiError {', () => {
+    code.line('return new ApiError(');
+    code.line('  `Access denied: ${operation} on ${entity}`,');
+    code.line('  403,');
+    code.line('  "RLS_DENIED",');
+    code.line('  `${entity}.${operation}`');
+    code.line(');');
+  });
+  code.line();
+
+  code.comment('Helper to create not found error');
+  code.block('function createNotFoundError(entity: string, id: string): ApiError {', () => {
+    code.line('return new ApiError(');
+    code.line('  `${entity} not found: ${id}`,');
+    code.line('  404,');
+    code.line('  "NOT_FOUND",');
+    code.line('  `${entity}.get`');
+    code.line(');');
+  });
   code.line();
 }

@@ -1089,6 +1089,118 @@ For custom endpoints:
 └── endpoint-resolvers.ts # Mock resolvers
 ```
 
+### ⚠️ Warning: Do Not Modify Generated Files
+
+**NEVER edit files in `src/generated/` directly.** These files are auto-generated and will be overwritten on next `npx schemock generate`.
+
+To make changes:
+1. Edit your schema files in `src/schemas/`
+2. Run `npx schemock generate`
+3. Your changes will be reflected in the regenerated output
+
+If you find a bug in generated code, please [report it](https://github.com/prajyot-tote/schemock/issues) rather than editing the output directly.
+
+## Mock Client - Authentication & Error Handling
+
+The generated mock client uses a production-ready **interceptor pattern** for centralized auth and error handling - just like axios interceptors or fetch wrappers in real applications.
+
+### Setup (Configure Once)
+
+```typescript
+import { createClient } from './generated/client';
+import { createMockJwt } from 'schemock/middleware';
+
+// Configure at app startup (e.g., in _app.tsx or main.tsx)
+export const api = createClient({
+  // Runs before every API call - add auth headers here
+  onRequest: (ctx) => {
+    const token = localStorage.getItem('authToken');
+    if (token) {
+      ctx.headers.Authorization = `Bearer ${token}`;
+    }
+    return ctx;
+  },
+
+  // Centralized error handling
+  onError: (error) => {
+    if (error.status === 401) {
+      // Token expired - redirect to login
+      window.location.href = '/login';
+    }
+    if (error.status === 403) {
+      // Access denied - show notification
+      toast.error('Access denied');
+    }
+    if (error.status === 404) {
+      // Not found
+      toast.error('Resource not found');
+    }
+  }
+});
+```
+
+### Usage (Auth is Automatic)
+
+```typescript
+// Auth headers are automatically added to every request
+const posts = await api.post.list();
+const user = await api.user.get('123');
+await api.post.create({ title: 'Hello', authorId: '123' });
+```
+
+### Creating Mock JWT Tokens
+
+For testing different user contexts:
+
+```typescript
+import { createMockJwt } from 'schemock/middleware';
+
+// Create a token for a regular user
+const userToken = createMockJwt({ userId: 'user-123', role: 'user' });
+
+// Create a token for an admin (bypasses RLS)
+const adminToken = createMockJwt({ userId: 'admin-1', role: 'admin' });
+
+// Set in localStorage or pass directly
+localStorage.setItem('authToken', userToken);
+```
+
+### API Error Handling
+
+The `ApiError` class provides HTTP-like status codes:
+
+```typescript
+import { ApiError } from './generated/client';
+
+try {
+  await api.post.get('non-existent-id');
+} catch (error) {
+  if (error instanceof ApiError) {
+    console.log(error.status);    // 404
+    console.log(error.code);      // "NOT_FOUND"
+    console.log(error.operation); // "post.get"
+    console.log(error.message);   // "Post not found: non-existent-id"
+  }
+}
+```
+
+| Status | Code | When |
+|--------|------|------|
+| 403 | `RLS_DENIED` | Row-level security blocked the operation |
+| 404 | `NOT_FOUND` | Entity not found |
+| 500 | `INTERNAL_ERROR` | Unexpected error |
+
+### Simple Usage (No Auth)
+
+For quick prototyping without auth, use the default client:
+
+```typescript
+import { api } from './generated/client';
+
+// Works immediately - no configuration needed
+const users = await api.user.list();
+```
+
 ## Package Exports
 
 ```typescript
@@ -1141,6 +1253,20 @@ import { defineConfig } from 'schemock/cli';
 ## Status
 
 🚧 **In Development** - This project is under active development. APIs may change.
+
+## Reporting Issues
+
+Found a bug or have a feature request?
+
+**GitHub Issues**: https://github.com/prajyot-tote/schemock/issues
+
+When reporting bugs, please include:
+1. Your schema definition (`defineData` calls)
+2. The command you ran (`npx schemock generate --adapter X`)
+3. Expected vs actual behavior
+4. Relevant generated code snippet
+
+**Important**: If you find a bug in generated code, please report it rather than editing the generated files directly. The fix needs to be in the generator.
 
 ## License
 

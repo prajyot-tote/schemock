@@ -38,9 +38,11 @@ export function generateMockClient(schemas: AnalyzedSchema[]): string {
   }
   code.line();
 
+  // Always generate the interceptor infrastructure
+  generateRLSContextType(code);
+
   // RLS support
   if (schemasWithRLS) {
-    generateRLSContextType(code);
     generateRLSError(code);
     generateBypassCheck(code, allBypassConditions);
     code.line();
@@ -62,23 +64,171 @@ export function generateMockClient(schemas: AnalyzedSchema[]): string {
   generateParseRowHelper(code);
   code.line();
 
-  // Generate API
-  code.block('export const api = {', () => {
-    for (const schema of schemas) {
-      if (schema.isJunctionTable) continue;
-      generateEntityApi(code, schema, schemas, schemasWithRLS);
-    }
-  }, '};');
+  // Generate the API type
+  generateApiType(code, schemas);
+  code.line();
+
+  // Generate the createClient factory
+  generateCreateClientFactory(code, schemas, schemasWithRLS);
+  code.line();
+
+  // Export default unconfigured client for simple usage
+  code.multiDocComment([
+    'Default API client (no interceptors configured).',
+    'For production, use createClient() with interceptors instead.',
+    '',
+    '@example',
+    '```typescript',
+    "// Simple usage (no auth)",
+    'const posts = await api.post.list();',
+    '',
+    '// For production with auth, use createClient instead:',
+    'const api = createClient({',
+    '  onRequest: (ctx) => {',
+    '    ctx.headers.Authorization = `Bearer ${getToken()}`;',
+    '    return ctx;',
+    '  }',
+    '});',
+    '```',
+  ]);
+  code.line('export const api = createClient();');
 
   return code.toString();
 }
 
 /**
+ * Generate the ApiClient type
+ */
+function generateApiType(code: CodeBuilder, schemas: AnalyzedSchema[]): void {
+  code.comment('API client type');
+  code.block('export interface ApiClient {', () => {
+    for (const schema of schemas) {
+      if (schema.isJunctionTable) continue;
+      const { name, pascalName, relations } = schema;
+      const hasRelations = relations.length > 0;
+      const includeType = hasRelations ? `Types.${pascalName}Include` : 'never';
+
+      code.block(`${name}: {`, () => {
+        code.line(`list: (options?: Types.QueryOptions<Types.${pascalName}Filter, ${includeType}>) => Promise<Types.ListResponse<Types.${pascalName}>>;`);
+        code.line(`get: (id: string, options?: { include?: ${includeType}[] }) => Promise<Types.ItemResponse<Types.${pascalName}>>;`);
+        code.line(`create: (input: Types.${pascalName}Create) => Promise<Types.ItemResponse<Types.${pascalName}>>;`);
+        code.line(`update: (id: string, input: Types.${pascalName}Update) => Promise<Types.ItemResponse<Types.${pascalName}>>;`);
+        code.line('delete: (id: string) => Promise<void>;');
+      }, '};');
+    }
+  }, '}');
+}
+
+/**
+ * Generate the createClient factory function
+ */
+function generateCreateClientFactory(
+  code: CodeBuilder,
+  schemas: AnalyzedSchema[],
+  hasRLS: boolean
+): void {
+  code.multiDocComment([
+    'Create a configured API client with interceptors.',
+    '',
+    'Use this for production code to centralize auth and error handling.',
+    '',
+    '@param config - Client configuration with interceptors',
+    '@returns Configured API client',
+    '',
+    '@example',
+    '```typescript',
+    "import { createClient } from './generated/client';",
+    "import { createMockJwt } from 'schemock/middleware';",
+    '',
+    'const api = createClient({',
+    '  // Add auth headers to every request',
+    '  onRequest: (ctx) => {',
+    '    const token = localStorage.getItem("authToken");',
+    '    if (token) {',
+    '      ctx.headers.Authorization = `Bearer ${token}`;',
+    '    }',
+    '    return ctx;',
+    '  },',
+    '',
+    '  // Centralized error handling',
+    '  onError: (error) => {',
+    '    if (error.status === 401) {',
+    '      // Token expired - redirect to login',
+    '      window.location.href = "/login";',
+    '    }',
+    '    if (error.status === 403) {',
+    '      // Access denied - show notification',
+    '      toast.error("Access denied");',
+    '    }',
+    '  }',
+    '});',
+    '',
+    '// Now use the API - auth is automatic',
+    'const posts = await api.post.list();',
+    '```',
+  ]);
+  code.block('export function createClient(config?: ClientConfig): ApiClient {', () => {
+    code.line('const interceptors = config ?? {};');
+    code.line();
+
+    code.comment('Internal helper to run request through interceptors');
+    code.block('async function executeRequest<T>(', () => {
+      code.line('operation: string,');
+      code.line('fn: (ctx: RLSContext | null) => T | Promise<T>');
+    }, '): Promise<T> {');
+    code.indent();
+
+    code.comment('Build request context');
+    code.line('let requestCtx: RequestContext = { headers: {}, operation };');
+    code.line();
+
+    code.comment('Run onRequest interceptor (user adds auth headers here)');
+    code.block('if (interceptors.onRequest) {', () => {
+      code.line('requestCtx = await interceptors.onRequest(requestCtx);');
+    });
+    code.line();
+
+    code.comment('Extract RLS context from headers');
+    code.line('const rlsCtx = extractContextFromHeaders(requestCtx.headers);');
+    code.line();
+
+    code.block('try {', () => {
+      code.line('return await fn(rlsCtx);');
+    }, '} catch (err) {');
+    code.indent();
+    code.comment('Enhance error if not already ApiError');
+    code.line('const error = err instanceof ApiError ? err : new ApiError(');
+    code.line('  err instanceof Error ? err.message : String(err),');
+    code.line('  500,');
+    code.line('  "INTERNAL_ERROR",');
+    code.line('  operation');
+    code.line(');');
+    code.line();
+    code.comment('Run onError interceptor');
+    code.block('if (interceptors.onError) {', () => {
+      code.line('await interceptors.onError(error);');
+    });
+    code.line();
+    code.line('throw error;');
+    code.dedent();
+    code.line('}');
+
+    code.dedent();
+    code.line('}');
+    code.line();
+
+    code.comment('Build API client with all entity methods');
+    code.block('return {', () => {
+      for (const schema of schemas) {
+        if (schema.isJunctionTable) continue;
+        generateEntityApiFactory(code, schema, schemas, hasRLS);
+      }
+    }, '};');
+  });
+}
+
+/**
  * Generate RLS filter functions for an entity
- *
- * @param code - Code builder instance
- * @param schema - Analyzed schema for the entity
- * @param hasGlobalBypass - Whether any schema defines bypass conditions (applies to all RLS-enabled entities)
  */
 function generateEntityRLSFilters(code: CodeBuilder, schema: AnalyzedSchema, hasGlobalBypass: boolean): void {
   const { pascalName, rls } = schema;
@@ -199,9 +349,9 @@ function generateParseRowHelper(code: CodeBuilder): void {
 }
 
 /**
- * Generate API methods for a single entity
+ * Generate API methods for a single entity (factory version)
  */
-function generateEntityApi(
+function generateEntityApiFactory(
   code: CodeBuilder,
   schema: AnalyzedSchema,
   allSchemas: AnalyzedSchema[],
@@ -219,8 +369,10 @@ function generateEntityApi(
   code.block(`${name}: {`, () => {
     // LIST
     code.block(
-      `list: async (options?: Types.QueryOptions<Types.${pascalName}Filter, ${includeType}>): Promise<Types.ListResponse<Types.${pascalName}>> => {`,
+      `list: (options?: Types.QueryOptions<Types.${pascalName}Filter, ${includeType}>) =>`,
       () => {
+        code.line(`executeRequest('${name}.list', (ctx) => {`);
+        code.indent();
         if (hasJsonFields) {
           code.line(`let rawItems = db.${name}.getAll() as unknown as Record<string, unknown>[];`);
           code.line(`let items = rawItems.map(row => parseRow<Types.${pascalName}>(row, [${jsonFieldsStr}]));`);
@@ -232,7 +384,6 @@ function generateEntityApi(
         // Apply RLS filter for select
         if (hasRLS) {
           code.comment('Apply RLS filter');
-          code.line(`const ctx = getContext();`);
           code.line(`items = items.filter(item => rls${pascalName}Select(item as unknown as Record<string, unknown>, ctx));`);
           code.line();
         }
@@ -284,17 +435,20 @@ function generateEntityApi(
         }
 
         code.line('return { data: items, meta: { total, limit, offset, hasMore: offset + limit < total } };');
-      },
-      '},'
+        code.dedent();
+        code.line('}),');
+      }
     );
     code.line();
 
     // GET
     code.block(
-      `get: async (id: string, options?: { include?: ${includeType}[] }): Promise<Types.ItemResponse<Types.${pascalName}>> => {`,
+      `get: (id: string, options?: { include?: ${includeType}[] }) =>`,
       () => {
+        code.line(`executeRequest('${name}.get', (ctx) => {`);
+        code.indent();
         code.line(`const rawItem = db.${name}.findFirst({ where: { id: { equals: id } } }) as unknown as Record<string, unknown> | null;`);
-        code.line(`if (!rawItem) throw new Error('${pascalName} not found');`);
+        code.line(`if (!rawItem) throw createNotFoundError('${pascalName}', id);`);
         if (hasJsonFields) {
           code.line(`const item = parseRow<Types.${pascalName}>(rawItem, [${jsonFieldsStr}]);`);
         } else {
@@ -305,9 +459,8 @@ function generateEntityApi(
         // Apply RLS check for select
         if (hasRLS) {
           code.comment('Apply RLS check');
-          code.line(`const ctx = getContext();`);
           code.block(`if (!rls${pascalName}Select(item as unknown as Record<string, unknown>, ctx)) {`, () => {
-            code.line(`throw new RLSError('select', '${pascalName}');`);
+            code.line(`throw createRLSError('select', '${pascalName}');`);
           });
           code.line();
         }
@@ -327,25 +480,28 @@ function generateEntityApi(
         } else {
           code.line('return { data: item };');
         }
-      },
-      '},'
+        code.dedent();
+        code.line('}),');
+      }
     );
     code.line();
 
     // CREATE
-    generateCreateMethod(code, schema, hasJsonFields, jsonFieldsStr, hasRLS);
+    generateCreateMethodFactory(code, schema, hasJsonFields, jsonFieldsStr, hasRLS);
     code.line();
 
     // UPDATE
-    code.block(`update: async (id: string, input: Types.${pascalName}Update): Promise<Types.ItemResponse<Types.${pascalName}>> => {`, () => {
+    code.block(`update: (id: string, input: Types.${pascalName}Update) =>`, () => {
+      code.line(`executeRequest('${name}.update', (ctx) => {`);
+      code.indent();
+
       // Check RLS on existing item first
       if (hasRLS) {
         code.comment('Check RLS before update');
         code.line(`const existing = db.${name}.findFirst({ where: { id: { equals: id } } }) as unknown as Record<string, unknown> | null;`);
-        code.line(`if (!existing) throw new Error('${pascalName} not found');`);
-        code.line(`const ctx = getContext();`);
+        code.line(`if (!existing) throw createNotFoundError('${pascalName}', id);`);
         code.block(`if (!rls${pascalName}Update(existing, ctx)) {`, () => {
-          code.line(`throw new RLSError('update', '${pascalName}');`);
+          code.line(`throw createRLSError('update', '${pascalName}');`);
         });
         code.line();
       }
@@ -356,35 +512,41 @@ function generateEntityApi(
       code.line('  data: { ...input, updatedAt: new Date() } as any,');
       code.line('}) as unknown as Record<string, unknown> | null;');
       if (!hasRLS) {
-        code.line(`if (!rawItem) throw new Error('${pascalName} not found');`);
+        code.line(`if (!rawItem) throw createNotFoundError('${pascalName}', id);`);
       }
       if (hasJsonFields) {
         code.line(`return { data: parseRow<Types.${pascalName}>(rawItem!, [${jsonFieldsStr}]) };`);
       } else {
         code.line(`return { data: rawItem as Types.${pascalName} };`);
       }
-    }, '},');
+      code.dedent();
+      code.line('}),');
+    });
     code.line();
 
     // DELETE
-    code.block('delete: async (id: string): Promise<void> => {', () => {
+    code.block('delete: (id: string) =>', () => {
+      code.line(`executeRequest('${name}.delete', (ctx) => {`);
+      code.indent();
+
       // Check RLS on existing item first
       if (hasRLS) {
         code.comment('Check RLS before delete');
         code.line(`const existing = db.${name}.findFirst({ where: { id: { equals: id } } }) as unknown as Record<string, unknown> | null;`);
-        code.line(`if (!existing) throw new Error('${pascalName} not found');`);
-        code.line(`const ctx = getContext();`);
+        code.line(`if (!existing) throw createNotFoundError('${pascalName}', id);`);
         code.block(`if (!rls${pascalName}Delete(existing, ctx)) {`, () => {
-          code.line(`throw new RLSError('delete', '${pascalName}');`);
+          code.line(`throw createRLSError('delete', '${pascalName}');`);
         });
         code.line();
       }
 
       code.line(`const item = db.${name}.delete({ where: { id: { equals: id } } });`);
       if (!hasRLS) {
-        code.line(`if (!item) throw new Error('${pascalName} not found');`);
+        code.line(`if (!item) throw createNotFoundError('${pascalName}', id);`);
       }
-    }, '},');
+      code.dedent();
+      code.line('}),');
+    });
   }, '},');
   code.line();
 }
@@ -410,7 +572,6 @@ function generateRelationLoad(code: CodeBuilder, schema: AnalyzedSchema, rel: An
     code.line('});');
   } else if (rel.type === 'manyToMany') {
     // foreignKey is the FK on the junction table pointing to the source entity
-    // Note: rel.through should also be resolved if it can be aliased
     const throughDbName = toSafePropertyName(rel.through!);
     code.line(`const junctions = db.${throughDbName}.findMany({`);
     code.line(`  where: { ${rel.foreignKey}: { equals: item.id } }`);
@@ -424,9 +585,9 @@ function generateRelationLoad(code: CodeBuilder, schema: AnalyzedSchema, rel: An
 }
 
 /**
- * Generate create method with nested relation support
+ * Generate create method with nested relation support (factory version)
  */
-function generateCreateMethod(
+function generateCreateMethodFactory(
   code: CodeBuilder,
   schema: AnalyzedSchema,
   hasJsonFields: boolean,
@@ -436,7 +597,10 @@ function generateCreateMethod(
   const { name, pascalName, relations } = schema;
   const nestedRels = relations.filter((r) => r.type === 'hasMany' || r.type === 'hasOne');
 
-  code.block(`create: async (input: Types.${pascalName}Create): Promise<Types.ItemResponse<Types.${pascalName}>> => {`, () => {
+  code.block(`create: (input: Types.${pascalName}Create) =>`, () => {
+    code.line(`executeRequest('${name}.create', (ctx) => {`);
+    code.indent();
+
     if (nestedRels.length > 0) {
       // Extract nested creates
       const relNames = nestedRels.map((r) => r.name).join(', ');
@@ -454,17 +618,15 @@ function generateCreateMethod(
       // Check RLS on created item
       if (hasRLS) {
         code.comment('Check RLS on created item');
-        code.line(`const ctx = getContext();`);
         code.block(`if (!rls${pascalName}Insert(item as unknown as Record<string, unknown>, ctx)) {`, () => {
           code.comment('Rollback by deleting');
           code.line(`db.${name}.delete({ where: { id: { equals: item.id } } });`);
-          code.line(`throw new RLSError('insert', '${pascalName}');`);
+          code.line(`throw createRLSError('insert', '${pascalName}');`);
         });
         code.line();
       }
 
       for (const rel of nestedRels) {
-        // Use resolvedTarget to get the actual entity name
         const targetDbName = toSafePropertyName(rel.resolvedTarget);
         code.block(`if (${rel.name}) {`, () => {
           if (rel.type === 'hasMany') {
@@ -494,16 +656,18 @@ function generateCreateMethod(
       if (hasRLS) {
         code.line();
         code.comment('Check RLS on created item');
-        code.line(`const ctx = getContext();`);
         code.block(`if (!rls${pascalName}Insert(item as unknown as Record<string, unknown>, ctx)) {`, () => {
           code.comment('Rollback by deleting');
           code.line(`db.${name}.delete({ where: { id: { equals: item.id } } });`);
-          code.line(`throw new RLSError('insert', '${pascalName}');`);
+          code.line(`throw createRLSError('insert', '${pascalName}');`);
         });
       }
 
       code.line();
       code.line('return { data: item };');
     }
-  }, '},');
+
+    code.dedent();
+    code.line('}),');
+  });
 }
