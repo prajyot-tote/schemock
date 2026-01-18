@@ -200,6 +200,49 @@ export function generateEndpointHandlers(endpoints: AnalyzedEndpoint[]): string 
   code.line("import { endpointResolvers } from './endpoint-resolvers';");
   code.line();
 
+  // Generate error handling infrastructure
+  code.comment('Error classes for typed error handling');
+  code.block('class ApiError extends Error {', () => {
+    code.line('readonly status: number;');
+    code.line('readonly code: string;');
+    code.line();
+    code.block('constructor(message: string, status: number, code?: string) {', () => {
+      code.line('super(message);');
+      code.line('this.name = "ApiError";');
+      code.line('this.status = status;');
+      code.line('this.code = code ?? "API_ERROR";');
+    });
+  });
+  code.line();
+
+  code.block('class RLSError extends Error {', () => {
+    code.block('constructor(message: string = "Access denied") {', () => {
+      code.line('super(message);');
+      code.line('this.name = "RLSError";');
+    });
+  });
+  code.line();
+
+  code.comment('Centralized error handler for endpoint handlers');
+  code.block('function handleError(error: unknown): Response {', () => {
+    code.block('if (error instanceof ApiError) {', () => {
+      code.line('return HttpResponse.json({ error: error.message, code: error.code }, { status: error.status });');
+    });
+    code.block('if (error instanceof RLSError) {', () => {
+      code.line('return HttpResponse.json({ error: error.message }, { status: 403 });');
+    });
+    code.block('if (error instanceof Error) {', () => {
+      code.block('if (error.message.toLowerCase().includes("not found")) {', () => {
+        code.line('return HttpResponse.json({ error: error.message }, { status: 404 });');
+      });
+      code.line('console.error("Endpoint error:", error);');
+      code.line('return HttpResponse.json({ error: error.message }, { status: 500 });');
+    });
+    code.line('console.error("Unknown endpoint error:", error);');
+    code.line('return HttpResponse.json({ error: "Internal server error" }, { status: 500 });');
+  });
+  code.line();
+
   code.block('export const endpointHandlers = [', () => {
     for (const endpoint of endpoints) {
       generateHandler(code, endpoint);
@@ -264,9 +307,7 @@ function generateHandler(code: CodeBuilder, endpoint: AnalyzedEndpoint): void {
       code.line('return HttpResponse.json(result);');
     }, '} catch (error) {');
     code.indent();
-    code.line('console.error(`Error in ${name}:`, error);');
-    code.line('const message = error instanceof Error ? error.message : "Internal server error";');
-    code.line('return HttpResponse.json({ error: message }, { status: 500 });');
+    code.line('return handleError(error);');
     code.dedent();
     code.line('}');
   }, '}),');
