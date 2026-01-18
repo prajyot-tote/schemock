@@ -15,6 +15,6 @@ export type { MockAdapterConfig } from './adapter';
 export { DataGenerator, dataGenerator } from './generator';
 export { generateFactory, generateFactories } from './factory';
 
-// Re-export storage drivers for convenience
-export { MswStorageDriver, MemoryStorageDriver } from '../../storage';
-export type { StorageDriver, StorageDriverConfig, QueryOptions, QueryMeta } from '../../storage';
+// Re-export storage drivers for convenience (in-memory and persistent)
+export { MswStorageDriver, MemoryStorageDriver, LocalStorageDriver } from '../../storage';
+export type { StorageDriver, StorageDriverConfig, QueryOptions, QueryMeta, LocalStorageDriverConfig } from '../../storage';

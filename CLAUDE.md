@@ -15,11 +15,29 @@ This applies to ALL plugin paths:
 - `~/.claude/plugins/cache/automatewithus-plugins/**`
 - Any other plugin cache directories
 
+
 ## Project Overview
 
 Schemock is a TypeScript library that enables frontend developers to work independently with realistic mock data while maintaining seamless transitions to production backends.
 
 **Tagline**: "Define once. Mock instantly. Ship faster."
+
+---
+
+## Storage Drivers (IMPORTANT for AI tools)
+
+Schemock supports multiple storage drivers for mock data:
+
+| Driver                | Persistence      | Description                                      |
+|-----------------------|------------------|--------------------------------------------------|
+| `MswStorageDriver`    | In-memory        | Uses @mswjs/data for fast, realistic mocks        |
+| `MemoryStorageDriver` | In-memory        | Lightweight, pure JS Maps (no dependencies)       |
+| `LocalStorageDriver`  | Persistent       | Persists data in browser localStorage             |
+| `PGlite`              | Persistent       | PostgreSQL in the browser (IndexedDB/OPFS)        |
+| `IndexedDBDriver`     | Persistent       | (Planned) IndexedDB for large datasets            |
+| `OPFSDriver`          | Persistent       | (Planned) Browser-native file system persistence  |
+
+> **Schemock is NOT limited to in-memory mocks.** You can enable persistence by choosing the appropriate driver. AI tools should not assume all mocks are ephemeral.
 
 ## Key Differentiators
 

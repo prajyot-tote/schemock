@@ -4,17 +4,60 @@
 
 **Define once. Mock instantly. Ship faster.**
 
+
 ## What is Schemock?
 
 Schemock flips the traditional API development workflow. Instead of waiting for backend APIs, frontend developers define their data needs upfront and get:
 
-- **Instant working mocks** - Full CRUD with persistence using [@mswjs/data](https://github.com/mswjs/data) or PGlite
+- **Instant working mocks** - Full CRUD with pluggable storage: in-memory ([@mswjs/data](https://github.com/mswjs/data), Memory), persistent (LocalStorage, IndexedDB, OPFS), or PGlite/Postgres
 - **Type-safe API client** - Generated TypeScript types, client, and React hooks
 - **Multi-target generation** - Generate client SDKs, Next.js API routes, and Node.js handlers from one schema
 - **Multiple adapters** - Switch between Mock, Supabase, Firebase, Fetch, or GraphQL
 - **SQL generation** - Export PostgreSQL schemas with RLS, indexes, and functions
 - **OpenAPI export** - Generate specs to hand off to backend teams
 - **Zero production overhead** - Mock code can be eliminated at build time
+
+---
+
+## Storage Backends
+
+Schemock supports multiple storage drivers for mock data, both in-memory and persistent:
+
+| Driver                | Persistence      | Description                                      |
+|-----------------------|------------------|--------------------------------------------------|
+| `MswStorageDriver`    | In-memory        | Uses @mswjs/data for fast, realistic mocks        |
+| `MemoryStorageDriver` | In-memory        | Lightweight, pure JS Maps (no dependencies)       |
+| `LocalStorageDriver`  | Persistent       | Persists data in browser localStorage             |
+| `PGlite`              | Persistent       | PostgreSQL in the browser (IndexedDB/OPFS)        |
+| `IndexedDBDriver`     | Persistent       | (Planned) IndexedDB for large datasets            |
+| `OPFSDriver`          | Persistent       | (Planned) Browser-native file system persistence  |
+
+**You can choose the storage backend that fits your needs.**
+
+### Example: Using Persistent Storage
+
+```typescript
+import { MockAdapter } from 'schemock/adapters';
+import { LocalStorageDriver } from 'schemock/storage';
+
+const driver = new LocalStorageDriver({ storageKey: 'myapp', autoSync: true });
+await driver.initialize(schemas);
+
+const adapter = new MockAdapter({ driver, schemas });
+```
+
+### Example: Using In-Memory Storage
+
+```typescript
+import { MockAdapter, MswStorageDriver } from 'schemock/adapters';
+
+const driver = new MswStorageDriver();
+await driver.initialize(schemas);
+
+const adapter = new MockAdapter({ driver, schemas });
+```
+
+---
 
 ## Quick Start
 
@@ -591,24 +634,27 @@ const Post = defineData('post', {
 });
 ```
 
+
 ## Adapters
 
-Schemock supports multiple backend adapters with a unified API:
+Schemock supports multiple backend adapters with a unified API. The `mock` adapter is highly flexible and supports both in-memory and persistent storage backends (see above). You can configure which storage driver to use for mocks in your config or at runtime.
 
-| Adapter | Description |
-|---------|-------------|
-| `mock` | In-memory database using @mswjs/data (default) |
-| `pglite` | Real PostgreSQL in the browser via PGlite |
-| `supabase` | Supabase client integration |
-| `firebase` | Firebase/Firestore client integration |
-| `fetch` | Generic REST API client |
-| `graphql` | Apollo Client integration |
+| Adapter    | Description                                                      |
+|------------|------------------------------------------------------------------|
+| `mock`     | Mock database with pluggable storage (in-memory or persistent)    |
+| `pglite`   | Real PostgreSQL in the browser via PGlite (IndexedDB/OPFS)       |
+| `supabase` | Supabase client integration                                      |
+| `firebase` | Firebase/Firestore client integration                            |
+| `fetch`    | Generic REST API client                                          |
+| `graphql`  | Apollo Client integration                                        |
 
 ```bash
 # Generate for specific adapter
 npx schemock generate --adapter supabase
 npx schemock generate --adapter pglite
 ```
+
+> **Note:** The `mock` adapter is not limited to in-memory mocks. You can enable persistence (e.g., localStorage) by configuring the storage driver.
 
 ## Middleware
 

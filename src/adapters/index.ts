@@ -18,7 +18,7 @@ export type {
   SchemaRegistry,
 } from './types';
 
-// Re-export MockAdapter
+// Re-export MockAdapter and all storage drivers (in-memory and persistent)
 export {
   MockAdapter,
   createMockAdapter,
@@ -28,6 +28,7 @@ export {
   generateFactories,
   MswStorageDriver,
   MemoryStorageDriver,
+  LocalStorageDriver,
 } from './mock';
 export type {
   MockAdapterConfig,
@@ -35,6 +36,7 @@ export type {
   StorageDriverConfig,
   QueryOptions,
   QueryMeta,
+  LocalStorageDriverConfig,
 } from './mock';
 
 // Re-export FetchAdapter

@@ -2,7 +2,11 @@
  * MockAdapter - Unified mock adapter using StorageDriver abstraction
  *
  * Provides full CRUD operations through a configurable storage backend
- * and middleware pipeline. Supports MSW, Memory, and other storage drivers.
+ * and middleware pipeline. Supports both in-memory and persistent storage drivers:
+ *   - In-memory: MswStorageDriver (@mswjs/data), MemoryStorageDriver (JS Maps)
+ *   - Persistent: LocalStorageDriver (browser localStorage), PGlite (IndexedDB/OPFS)
+ *
+ * Schemock is NOT limited to in-memory mocks. You can enable persistence by choosing the appropriate driver.
  *
  * @module adapters/mock/adapter
  * @category MockAdapter
@@ -46,7 +50,7 @@ export interface MockAdapterConfig {
  * Unified MockAdapter implementation using StorageDriver abstraction.
  *
  * Features:
- * - Pluggable storage backends (MSW, Memory, PGlite)
+ * - Pluggable storage backends (MSW, Memory, LocalStorage, PGlite, etc.)
  * - Full middleware support (auth, context, RLS, cache, retry, logger)
  * - Configurable network delay simulation
  * - Automatic timestamp management
