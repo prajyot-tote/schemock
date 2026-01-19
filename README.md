@@ -561,6 +561,54 @@ const BulkDeleteEndpoint = defineEndpoint('/api/posts/bulk-delete', {
 });
 ```
 
+### External Resolver Functions
+
+When generating mock endpoints, Schemock handles resolver functions in two ways:
+
+**Named functions** are imported from your source file:
+
+```typescript
+// src/schemas/endpoints.ts
+
+// Named function - will be IMPORTED in generated code
+export async function searchResolver({ params, db }) {
+  const users = db.user.findMany({
+    where: { name: { contains: params.q } }
+  });
+  return { results: users, total: users.length };
+}
+
+export const SearchEndpoint = defineEndpoint('/api/search', {
+  method: 'GET',
+  params: { q: field.string() },
+  mockResolver: searchResolver,  // ✅ Imported, not serialized
+});
+```
+
+Generated output:
+```typescript
+// src/generated/mock/endpoints.ts
+import { searchResolver } from '../../schemas/endpoints';
+
+// Uses imported function directly
+{ path: '/api/search', resolver: searchResolver }
+```
+
+**Anonymous/inline functions** are serialized into the generated code:
+
+```typescript
+export const HealthEndpoint = defineEndpoint('/api/health', {
+  method: 'GET',
+  mockResolver: async () => ({ status: 'ok' }),  // Serialized inline
+});
+```
+
+**Benefits of named functions:**
+- Proper IDE support (go-to-definition, refactoring)
+- Full TypeScript type checking
+- Easier debugging with meaningful stack traces
+- Cleaner generated code
+
 ### Row-Level Security (RLS)
 
 **Scope-based RLS (simple - recommended):**
