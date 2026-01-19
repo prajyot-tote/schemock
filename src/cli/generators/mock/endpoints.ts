@@ -12,6 +12,53 @@ import type { AnalyzedEndpoint, AnalyzedEndpointField } from '../../types';
 import { CodeBuilder } from '../../utils/code-builder';
 
 // ============================================================================
+// Helper Functions
+// ============================================================================
+
+/**
+ * Inject type annotation into resolver function parameters
+ *
+ * Transforms arrow functions to include explicit type annotations on parameters:
+ *   async ({ body, db }) => { ... }
+ * Into:
+ *   async ({ body, db }: AuthLoginResolverContext) => { ... }
+ *
+ * This enables proper type-checking of params/body/db within the function body,
+ * rather than relying on `as Type` casts which don't validate the function internals.
+ *
+ * @param source - The resolver function source code
+ * @param contextType - The type name to inject (e.g., 'AuthLoginResolverContext')
+ * @returns The function source with type annotation injected
+ */
+function injectResolverTypeAnnotation(source: string, contextType: string): string {
+  // Match arrow function patterns:
+  // - async ({ body, db }) =>
+  // - ({ body }) =>
+  // - async (ctx) =>
+  // - (ctx) =>
+  //
+  // Pattern: optional async, open paren, params (destructure or identifier), close paren, arrow
+  const match = source.match(/^(async\s*)?\(([^)]*)\)\s*=>/);
+
+  if (match) {
+    const [fullMatch, asyncPart = '', params] = match;
+    // Check if already has type annotation (params contains ':')
+    if (params.includes(':')) {
+      return source; // Already typed, return as-is
+    }
+    // Skip injection for empty parameter lists - can't type annotate ()
+    if (params.trim() === '') {
+      return source;
+    }
+    const replacement = `${asyncPart}(${params}: ${contextType}) =>`;
+    return source.replace(fullMatch, replacement);
+  }
+
+  // No pattern matched - return original
+  return source;
+}
+
+// ============================================================================
 // Type Generation
 // ============================================================================
 
@@ -198,6 +245,7 @@ export function generateEndpointHandlers(endpoints: AnalyzedEndpoint[]): string 
   code.line("import { http, HttpResponse } from 'msw';");
   code.line("import { db } from './db';");
   code.line("import { endpointResolvers } from './endpoint-resolvers';");
+  code.line("import type * as Types from './types';");
   code.line();
 
   // Generate error handling infrastructure
@@ -256,9 +304,10 @@ export function generateEndpointHandlers(endpoints: AnalyzedEndpoint[]): string 
  * Generate a single MSW handler
  */
 function generateHandler(code: CodeBuilder, endpoint: AnalyzedEndpoint): void {
-  const { name, method, path, params, body, pathParams } = endpoint;
+  const { name, pascalName, method, path, params, body, pathParams } = endpoint;
   const httpMethod = method.toLowerCase();
   const hasBody = body.length > 0;
+  const hasParams = params.length > 0 || pathParams.length > 0;
 
   code.comment(`${method} ${path}`);
   code.block(`http.${httpMethod}('${path}', async ({ request, params: pathParams }) => {`, () => {
@@ -306,8 +355,11 @@ function generateHandler(code: CodeBuilder, endpoint: AnalyzedEndpoint): void {
     code.line();
 
     // Call resolver with complete context (always includes params, body, db, headers)
+    // Type assertions ensure proper typing through the resolver chain
+    const paramsArg = hasParams ? `params as Types.${pascalName}Params` : 'params';
+    const bodyArg = hasBody ? `body as Types.${pascalName}Body` : 'body';
     code.block('try {', () => {
-      code.line(`const result = await endpointResolvers.${name}({ db, params, body, headers });`);
+      code.line(`const result = await endpointResolvers.${name}({ db, params: ${paramsArg}, body: ${bodyArg}, headers });`);
       code.line('return HttpResponse.json(result);');
     }, '} catch (error) {');
     code.indent();
@@ -449,27 +501,30 @@ export function generateEndpointResolvers(endpoints: AnalyzedEndpoint[], outputD
 
   // Helper to calculate relative import path
   const calculateRelativePath = (importPath: string): string => {
-    let relativePath = importPath;
-    if (outputDir) {
-      // Use POSIX-style paths for imports
-      const toPosix = (p: string) => p.replace(/\\/g, '/');
-      const from = toPosix(outputDir);
-      const to = toPosix(importPath);
-      // Manual relative path calculation (POSIX only)
-      const fromParts = from.split('/').filter(Boolean);
-      const toParts = to.split('/').filter(Boolean);
-      // Remove common prefix
-      while (fromParts.length && toParts.length && fromParts[0] === toParts[0]) {
-        fromParts.shift();
-        toParts.shift();
-      }
-      let rel = '../'.repeat(fromParts.length) + toParts.join('/');
-      if (!rel.startsWith('.') && rel !== '') rel = './' + rel;
-      // Remove .ts or .js extension
-      rel = rel.replace(/\.(ts|js)$/, '');
-      relativePath = rel;
+    if (!outputDir) return importPath;
+
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const path = require('path');
+
+    // Resolve both paths to absolute to ensure correct calculation
+    const absOutputDir = path.resolve(outputDir);
+    const absImportPath = path.resolve(importPath);
+
+    // Use Node's path.relative for reliable calculation
+    let rel = path.relative(absOutputDir, absImportPath);
+
+    // Convert to POSIX-style paths for imports (handles Windows backslashes)
+    rel = rel.replace(/\\/g, '/');
+
+    // Ensure starts with ./ or ../ for valid ES module import
+    if (!rel.startsWith('.') && !rel.startsWith('/')) {
+      rel = './' + rel;
     }
-    return relativePath;
+
+    // Remove .ts or .js extension for imports
+    rel = rel.replace(/\.(ts|js)$/, '');
+
+    return rel;
   };
 
   // Generate imports for external resolvers (named functions)
@@ -538,7 +593,30 @@ export function generateEndpointResolvers(endpoints: AnalyzedEndpoint[], outputD
       code.line(`import { ${names.join(', ')} } from '${resolvedPath}';`);
     }
   }
-  
+
+  // Collect all local functions from endpoints
+  const allLocalFunctions = new Map<string, string>();
+  for (const endpoint of endpoints) {
+    if (endpoint.localFunctions) {
+      for (const fn of endpoint.localFunctions) {
+        // Only add if not already present (avoid duplicates)
+        if (!allLocalFunctions.has(fn.name)) {
+          allLocalFunctions.set(fn.name, fn.source);
+        }
+      }
+    }
+  }
+
+  // Generate local functions (copied from source files)
+  if (allLocalFunctions.size > 0) {
+    code.line();
+    code.comment('Local helper functions (copied from source files)');
+    for (const [, source] of allLocalFunctions) {
+      code.line(source);
+      code.line();
+    }
+  }
+
   code.line();
 
   // Generate typed resolver function types for each endpoint
@@ -569,12 +647,17 @@ export function generateEndpointResolvers(endpoints: AnalyzedEndpoint[], outputD
       }
 
       // Use the named resolver if available, otherwise use serialized source
-      // Wrap in parentheses and cast to the typed resolver function for proper type inference
       if (endpoint.mockResolverName) {
+        // Named function - cast to typed resolver function
         code.line(`${endpoint.name}: ${endpoint.mockResolverName} as ${endpoint.pascalName}ResolverFn,`);
       } else {
-        // Wrap inline resolver in parentheses to allow type assertion
-        code.line(`${endpoint.name}: (${endpoint.mockResolverSource}) as ${endpoint.pascalName}ResolverFn,`);
+        // Inline resolver - inject type annotation into function parameters
+        // This enables proper type-checking within the function body
+        const typedSource = injectResolverTypeAnnotation(
+          endpoint.mockResolverSource,
+          `${endpoint.pascalName}ResolverContext`
+        );
+        code.line(`${endpoint.name}: ${typedSource},`);
       }
       code.line();
     }

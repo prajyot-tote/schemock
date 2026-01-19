@@ -9,7 +9,7 @@
 
 import { readFileSync } from 'node:fs';
 import type { EndpointSchema, FieldDefinition } from '../schema/types';
-import type { AnalyzedEndpoint, AnalyzedEndpointField, ResolverDependency } from './types';
+import type { AnalyzedEndpoint, AnalyzedEndpointField, ResolverDependency, LocalFunction } from './types';
 
 /**
  * Cache for parsed source file imports
@@ -72,6 +72,126 @@ function parseImportsFromFile(filePath: string): Map<string, string> {
 }
 
 /**
+ * Cache for parsed local functions in source files
+ */
+const localFunctionCache = new Map<string, Map<string, string>>();
+
+/**
+ * Parse local function definitions from a TypeScript/JavaScript source file
+ *
+ * @param filePath - Path to the source file
+ * @returns Map of function name to full function source code
+ */
+function parseLocalFunctions(filePath: string): Map<string, string> {
+  if (localFunctionCache.has(filePath)) {
+    return localFunctionCache.get(filePath)!;
+  }
+
+  const functions = new Map<string, string>();
+
+  try {
+    const content = readFileSync(filePath, 'utf-8');
+
+    // Pattern 1: function declarations - function name(...) { ... }
+    // Matches both exported and non-exported functions
+    const funcDeclRegex = /^(export\s+)?function\s+(\w+)\s*\([^)]*\)[^{]*\{/gm;
+    let match;
+    while ((match = funcDeclRegex.exec(content)) !== null) {
+      const name = match[2];
+      const source = extractFunctionBody(content, match.index);
+      if (source) functions.set(name, source);
+    }
+
+    // Pattern 2: arrow function assignments - const name = (...) => { ... }
+    // Matches both exported and non-exported const/let
+    const arrowRegex = /^(export\s+)?(const|let)\s+(\w+)\s*=\s*(async\s*)?\([^)]*\)[^=]*=>/gm;
+    while ((match = arrowRegex.exec(content)) !== null) {
+      const name = match[3];
+      const source = extractArrowFunction(content, match.index);
+      if (source) functions.set(name, source);
+    }
+  } catch {
+    console.warn(`Warning: Could not parse local functions from ${filePath}`);
+  }
+
+  localFunctionCache.set(filePath, functions);
+  return functions;
+}
+
+/**
+ * Extract function body by counting braces
+ *
+ * @param content - Full file content
+ * @param startIndex - Starting index of the function declaration
+ * @returns Full function source code or null if parsing fails
+ */
+function extractFunctionBody(content: string, startIndex: number): string | null {
+  let braceCount = 0;
+  let started = false;
+
+  for (let i = startIndex; i < content.length; i++) {
+    if (content[i] === '{') {
+      braceCount++;
+      started = true;
+    } else if (content[i] === '}') {
+      braceCount--;
+      if (started && braceCount === 0) {
+        return content.slice(startIndex, i + 1).trim();
+      }
+    }
+  }
+  return null;
+}
+
+/**
+ * Extract arrow function (handles both block body and expression body)
+ *
+ * @param content - Full file content
+ * @param startIndex - Starting index of the arrow function assignment
+ * @returns Full arrow function source code or null if parsing fails
+ */
+function extractArrowFunction(content: string, startIndex: number): string | null {
+  const arrowIndex = content.indexOf('=>', startIndex);
+  if (arrowIndex === -1) return null;
+
+  // Skip whitespace after arrow
+  let i = arrowIndex + 2;
+  while (i < content.length && /\s/.test(content[i])) i++;
+
+  if (content[i] === '{') {
+    // Block body - use brace counting
+    let braceCount = 0;
+    let started = false;
+
+    for (let j = i; j < content.length; j++) {
+      if (content[j] === '{') {
+        braceCount++;
+        started = true;
+      } else if (content[j] === '}') {
+        braceCount--;
+        if (started && braceCount === 0) {
+          return content.slice(startIndex, j + 1).trim();
+        }
+      }
+    }
+    return null;
+  } else {
+    // Expression body - find semicolon or newline (accounting for nested parens)
+    let end = i;
+    let parenCount = 0;
+    while (end < content.length) {
+      if (content[end] === '(') parenCount++;
+      else if (content[end] === ')') parenCount--;
+      else if ((content[end] === ';' || content[end] === '\n') && parenCount === 0) {
+        break;
+      }
+      end++;
+    }
+    return content.slice(startIndex, end).trim() + ';';
+  }
+}
+
+/**
  * Detect identifiers used in a function body that might be external dependencies
  *
  * @param functionSource - The serialized function source code
@@ -99,6 +219,16 @@ function detectUsedIdentifiers(functionSource: string): string[] {
     }
   }
 
+  // Match await calls: await identifier(
+  // This catches async function calls that might be missed by the general call regex
+  const awaitCallRegex = /\bawait\s+([a-zA-Z][a-zA-Z0-9]*)\s*\(/g;
+  while ((match = awaitCallRegex.exec(withoutStrings)) !== null) {
+    const name = match[1];
+    if (!isBuiltIn(name) && !isContextProperty(name)) {
+      identifiers.add(name);
+    }
+  }
+
   // Match class instantiation: new ClassName
   const newRegex = /\bnew\s+([A-Z][a-zA-Z0-9]*)/g;
   while ((match = newRegex.exec(withoutStrings)) !== null) {
@@ -114,7 +244,34 @@ function detectUsedIdentifiers(functionSource: string): string[] {
     identifiers.add(match[1]);
   }
 
+  // Match identifiers used as values (passed to functions, assigned, etc.)
+  // This catches: someFunc(hashPassword) or const fn = hashPassword
+  // Use a more targeted approach: look for camelCase identifiers that appear
+  // in contexts where they're used as values (not called)
+  const valueUsageRegex = /(?:,\s*|\(\s*|=\s*|:\s*)([a-z][a-zA-Z0-9]*)\b(?!\s*[:(])/g;
+  while ((match = valueUsageRegex.exec(withoutStrings)) !== null) {
+    const name = match[1];
+    // Only add if it looks like an imported utility (camelCase, not a keyword)
+    if (!isBuiltIn(name) && !isContextProperty(name) && !isKeyword(name) && name.length > 2) {
+      identifiers.add(name);
+    }
+  }
+
   return Array.from(identifiers);
+}
+
+/**
+ * Check if identifier is a JavaScript keyword
+ */
+function isKeyword(name: string): boolean {
+  const keywords = new Set([
+    'if', 'else', 'for', 'while', 'do', 'switch', 'case', 'break', 'continue',
+    'return', 'throw', 'try', 'catch', 'finally', 'const', 'let', 'var',
+    'function', 'async', 'await', 'class', 'new', 'this', 'super', 'import',
+    'export', 'default', 'from', 'as', 'true', 'false', 'null', 'undefined',
+    'typeof', 'instanceof', 'void', 'delete', 'in', 'of', 'with', 'yield',
+  ]);
+  return keywords.has(name);
 }
 
 /**
@@ -196,6 +353,7 @@ function analyzeEndpoint(
   let mockResolverName: string | undefined;
   let mockResolverImportPath: string | undefined;
   let resolverDependencies: ResolverDependency[] | undefined;
+  let localFunctions: LocalFunction[] | undefined;
 
   if (isNamedFunction) {
     // Named function - will be imported directly
@@ -204,24 +362,37 @@ function analyzeEndpoint(
       mockResolverImportPath = sourceFile;
     }
   } else if (sourceFile) {
-    // Inline/anonymous resolver - detect external dependencies
+    // Inline/anonymous resolver - detect external dependencies and local functions
     const usedIdentifiers = detectUsedIdentifiers(mockResolverSource);
 
     if (usedIdentifiers.length > 0) {
-      // Parse imports from source file
+      // Parse imports and local functions from source file
       const fileImports = parseImportsFromFile(sourceFile);
+      const localFuncs = parseLocalFunctions(sourceFile);
 
-      // Find which used identifiers are imported in the source file
+      // Categorize used identifiers as either imported dependencies or local functions
       const deps: ResolverDependency[] = [];
+      const locals: LocalFunction[] = [];
+
       for (const identifier of usedIdentifiers) {
         const importPath = fileImports.get(identifier);
         if (importPath) {
+          // It's an imported dependency
           deps.push({ name: identifier, from: importPath });
+        } else {
+          // Check if it's a local function defined in the source file
+          const localSource = localFuncs.get(identifier);
+          if (localSource) {
+            locals.push({ name: identifier, source: localSource });
+          }
         }
       }
 
       if (deps.length > 0) {
         resolverDependencies = deps;
+      }
+      if (locals.length > 0) {
+        localFunctions = locals;
       }
     }
   }
@@ -240,6 +411,7 @@ function analyzeEndpoint(
     mockResolverImportPath,
     sourceFile,
     resolverDependencies,
+    localFunctions,
     description: endpoint.description,
   };
 }

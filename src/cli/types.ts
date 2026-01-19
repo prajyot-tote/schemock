@@ -511,6 +511,16 @@ export interface ResolverDependency {
 }
 
 /**
+ * Local function definition used by inline resolver
+ */
+export interface LocalFunction {
+  /** Function name */
+  name: string;
+  /** Full function source code */
+  source: string;
+}
+
+/**
  * Fully analyzed endpoint with all computed properties
  */
 export interface AnalyzedEndpoint {
@@ -542,6 +552,8 @@ export interface AnalyzedEndpoint {
   sourceFile?: string;
   /** Dependencies detected in inline resolver (functions used but not defined locally) */
   resolverDependencies?: ResolverDependency[];
+  /** Local functions used by inline resolver */
+  localFunctions?: LocalFunction[];
   /** Description */
   description?: string;
 }
