@@ -364,16 +364,49 @@ export function generateEndpointResolvers(endpoints: AnalyzedEndpoint[], outputD
   code.comment('');
   code.comment('These resolvers are copied from your defineEndpoint() calls.');
   code.comment('They receive { params, body, db, headers } and return the response.');
+  code.comment('');
+  code.comment('NOTE: If your inline resolvers use external functions (e.g., hashPassword, generateToken),');
+  code.comment('consider using named exported functions instead - they will be automatically imported.');
   code.line();
 
-  // Type imports
-  code.line("import type { MockResolverContext } from 'schemock/schema';");
-  
-  // Collect unique external resolvers to import
+  // Type imports - import Database for proper typing
+  code.line("import type { Database } from './db';");
+  code.line();
+
+  // Create a typed resolver context that uses the Database type
+  code.comment('Resolver context with typed database access');
+  code.block('export interface ResolverContext {', () => {
+    code.line('params: Record<string, unknown>;');
+    code.line('body: Record<string, unknown>;');
+    code.line('db: Database;');
+    code.line('headers: Record<string, string>;');
+  });
+  code.line();
+
+  // Add HttpError class for resolver error handling
+  code.comment('Error class for HTTP errors in resolvers');
+  code.block('export class HttpError extends Error {', () => {
+    code.line('readonly status: number;');
+    code.line('readonly code?: string;');
+    code.line();
+    code.block('constructor(message: string, status: number, code?: string) {', () => {
+      code.line('super(message);');
+      code.line('this.name = "HttpError";');
+      code.line('this.status = status;');
+      code.line('this.code = code;');
+    });
+  });
+  code.line();
+
+  // Collect unique external resolvers to import (named functions)
   const externalResolvers = new Map<string, { name: string; importPath: string }>();
-  
+
+  // Collect unique inline resolver dependencies (functions used in inline resolvers)
+  const inlineDependencies = new Map<string, { name: string; importPath: string }>();
+
   for (const endpoint of endpoints) {
     if (endpoint.mockResolverName && endpoint.mockResolverImportPath) {
+      // Named function resolver
       const key = `${endpoint.mockResolverImportPath}:${endpoint.mockResolverName}`;
       if (!externalResolvers.has(key)) {
         externalResolvers.set(key, {
@@ -382,13 +415,51 @@ export function generateEndpointResolvers(endpoints: AnalyzedEndpoint[], outputD
         });
       }
     }
+
+    // Collect dependencies from inline resolvers
+    if (endpoint.resolverDependencies) {
+      for (const dep of endpoint.resolverDependencies) {
+        const key = `${dep.from}:${dep.name}`;
+        if (!inlineDependencies.has(key)) {
+          inlineDependencies.set(key, {
+            name: dep.name,
+            importPath: dep.from,
+          });
+        }
+      }
+    }
   }
-  
-  // Generate imports for external resolvers
+
+  // Helper to calculate relative import path
+  const calculateRelativePath = (importPath: string): string => {
+    let relativePath = importPath;
+    if (outputDir) {
+      // Use POSIX-style paths for imports
+      const toPosix = (p: string) => p.replace(/\\/g, '/');
+      const from = toPosix(outputDir);
+      const to = toPosix(importPath);
+      // Manual relative path calculation (POSIX only)
+      const fromParts = from.split('/').filter(Boolean);
+      const toParts = to.split('/').filter(Boolean);
+      // Remove common prefix
+      while (fromParts.length && toParts.length && fromParts[0] === toParts[0]) {
+        fromParts.shift();
+        toParts.shift();
+      }
+      let rel = '../'.repeat(fromParts.length) + toParts.join('/');
+      if (!rel.startsWith('.') && rel !== '') rel = './' + rel;
+      // Remove .ts or .js extension
+      rel = rel.replace(/\.(ts|js)$/, '');
+      relativePath = rel;
+    }
+    return relativePath;
+  };
+
+  // Generate imports for external resolvers (named functions)
   if (externalResolvers.size > 0) {
     code.line();
     code.comment('External resolver imports');
-    
+
     // Group by import path
     const importsByPath = new Map<string, string[]>();
     for (const { name, importPath } of externalResolvers.values()) {
@@ -397,38 +468,44 @@ export function generateEndpointResolvers(endpoints: AnalyzedEndpoint[], outputD
       }
       importsByPath.get(importPath)!.push(name);
     }
-    
+
     // Generate import statements
     for (const [importPath, names] of importsByPath) {
-      // Calculate relative path from output directory to source file (frontend/TS compatible)
-      let relativePath = importPath;
-      if (outputDir) {
-        // Use POSIX-style paths for imports
-        const toPosix = (p: string) => p.replace(/\\/g, '/');
-        const from = toPosix(outputDir);
-        const to = toPosix(importPath);
-        // Manual relative path calculation (POSIX only)
-        const fromParts = from.split('/').filter(Boolean);
-        const toParts = to.split('/').filter(Boolean);
-        // Remove common prefix
-        while (fromParts.length && toParts.length && fromParts[0] === toParts[0]) {
-          fromParts.shift();
-          toParts.shift();
-        }
-        let rel = '../'.repeat(fromParts.length) + toParts.join('/');
-        if (!rel.startsWith('.') && rel !== '') rel = './' + rel;
-        // Remove .ts or .js extension
-        rel = rel.replace(/\.(ts|js)$/, '');
-        relativePath = rel;
-      }
+      const relativePath = calculateRelativePath(importPath);
       code.line(`import { ${names.join(', ')} } from '${relativePath}';`);
+    }
+  }
+
+  // Generate imports for inline resolver dependencies
+  if (inlineDependencies.size > 0) {
+    code.line();
+    code.comment('Dependencies used by inline resolvers');
+
+    // Group by import path
+    const importsByPath = new Map<string, string[]>();
+    for (const { name, importPath } of inlineDependencies.values()) {
+      if (!importsByPath.has(importPath)) {
+        importsByPath.set(importPath, []);
+      }
+      // Avoid duplicates within same path
+      const names = importsByPath.get(importPath)!;
+      if (!names.includes(name)) {
+        names.push(name);
+      }
+    }
+
+    // Generate import statements
+    for (const [importPath, names] of importsByPath) {
+      // For inline dependencies, the importPath is the module path from the original import
+      // We need to keep it as-is (e.g., './utils' or 'bcrypt') rather than calculating relative
+      code.line(`import { ${names.join(', ')} } from '${importPath}';`);
     }
   }
   
   code.line();
 
-  // Resolver type
-  code.line('type ResolverFn = (ctx: MockResolverContext) => unknown | Promise<unknown>;');
+  // Resolver type using the locally defined ResolverContext with Database typing
+  code.line('type ResolverFn = (ctx: ResolverContext) => unknown | Promise<unknown>;');
   code.line();
 
   code.block('export const endpointResolvers: Record<string, ResolverFn> = {', () => {

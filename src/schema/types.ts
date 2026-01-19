@@ -789,13 +789,13 @@ export type EndpointMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
  * }
  * ```
  */
-export interface MockResolverContext<TParams = Record<string, unknown>, TBody = Record<string, unknown>> {
+export interface MockResolverContext<TParams = Record<string, unknown>, TBody = Record<string, unknown>, TDb = any> {
   /** Parsed query/path parameters */
   params: TParams;
   /** Parsed request body (for POST/PUT/PATCH) */
   body: TBody;
-  /** Access to mock database */
-  db: unknown;
+  /** Access to mock database - typed as `any` for flexibility, actual type is Database from generated db.ts */
+  db: TDb;
   /** Request headers */
   headers: Record<string, string>;
 }

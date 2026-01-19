@@ -499,6 +499,18 @@ export interface AnalyzedEndpointField {
 }
 
 /**
+ * Dependency import for inline resolvers
+ */
+export interface ResolverDependency {
+  /** Identifier name used in the resolver */
+  name: string;
+  /** Module path to import from */
+  from: string;
+  /** Whether it's a default import */
+  isDefault?: boolean;
+}
+
+/**
  * Fully analyzed endpoint with all computed properties
  */
 export interface AnalyzedEndpoint {
@@ -526,6 +538,10 @@ export interface AnalyzedEndpoint {
   mockResolverImportPath?: string;
   /** Export name in the source file */
   mockResolverExportName?: string;
+  /** Source file path where this endpoint is defined */
+  sourceFile?: string;
+  /** Dependencies detected in inline resolver (functions used but not defined locally) */
+  resolverDependencies?: ResolverDependency[];
   /** Description */
   description?: string;
 }

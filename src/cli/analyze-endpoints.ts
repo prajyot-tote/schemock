@@ -7,8 +7,148 @@
  * @category CLI
  */
 
+import { readFileSync } from 'node:fs';
 import type { EndpointSchema, FieldDefinition } from '../schema/types';
-import type { AnalyzedEndpoint, AnalyzedEndpointField } from './types';
+import type { AnalyzedEndpoint, AnalyzedEndpointField, ResolverDependency } from './types';
+
+/**
+ * Cache for parsed source file imports
+ */
+const importCache = new Map<string, Map<string, string>>();
+
+/**
+ * Parse imports from a TypeScript/JavaScript source file
+ *
+ * @param filePath - Path to the source file
+ * @returns Map of identifier name to import module path
+ */
+function parseImportsFromFile(filePath: string): Map<string, string> {
+  if (importCache.has(filePath)) {
+    return importCache.get(filePath)!;
+  }
+
+  const imports = new Map<string, string>();
+
+  try {
+    const content = readFileSync(filePath, 'utf-8');
+
+    // Match import statements - both named and default imports
+    // Handles: import { a, b } from 'module'
+    //          import { a as b } from 'module'
+    //          import def from 'module'
+    //          import def, { a, b } from 'module'
+    const importRegex = /import\s+(?:(?:(\w+)(?:\s*,\s*)?)?(?:\{([^}]+)\})?\s+from\s+)?['"]([^'"]+)['"]/g;
+
+    let match;
+    while ((match = importRegex.exec(content)) !== null) {
+      const [, defaultImport, namedImports, modulePath] = match;
+
+      // Handle default import
+      if (defaultImport) {
+        imports.set(defaultImport, modulePath);
+      }
+
+      // Handle named imports
+      if (namedImports) {
+        const names = namedImports.split(',').map(s => s.trim());
+        for (const name of names) {
+          // Handle 'a as b' syntax
+          const asMatch = name.match(/(\w+)\s+as\s+(\w+)/);
+          if (asMatch) {
+            imports.set(asMatch[2], modulePath);
+          } else if (name && /^\w+$/.test(name)) {
+            imports.set(name, modulePath);
+          }
+        }
+      }
+    }
+  } catch (error) {
+    // File read error - return empty map
+    console.warn(`Warning: Could not parse imports from ${filePath}`);
+  }
+
+  importCache.set(filePath, imports);
+  return imports;
+}
+
+/**
+ * Detect identifiers used in a function body that might be external dependencies
+ *
+ * @param functionSource - The serialized function source code
+ * @returns Array of potential identifier names
+ */
+function detectUsedIdentifiers(functionSource: string): string[] {
+  // Remove string literals to avoid false positives
+  const withoutStrings = functionSource
+    .replace(/'[^']*'/g, '')
+    .replace(/"[^"]*"/g, '')
+    .replace(/`[^`]*`/g, '');
+
+  // Match function calls and identifier usage
+  // Look for: functionName( or ClassName.method or throw new ClassName
+  const identifiers = new Set<string>();
+
+  // Match function calls: identifier(
+  const callRegex = /\b([A-Z][a-zA-Z0-9]*|[a-z][a-zA-Z0-9]*)\s*\(/g;
+  let match;
+  while ((match = callRegex.exec(withoutStrings)) !== null) {
+    const name = match[1];
+    // Skip common built-ins and context properties
+    if (!isBuiltIn(name) && !isContextProperty(name)) {
+      identifiers.add(name);
+    }
+  }
+
+  // Match class instantiation: new ClassName
+  const newRegex = /\bnew\s+([A-Z][a-zA-Z0-9]*)/g;
+  while ((match = newRegex.exec(withoutStrings)) !== null) {
+    const name = match[1];
+    if (!isBuiltIn(name)) {
+      identifiers.add(name);
+    }
+  }
+
+  // Match throw new: throw new ClassName
+  const throwRegex = /\bthrow\s+new\s+([A-Z][a-zA-Z0-9]*)/g;
+  while ((match = throwRegex.exec(withoutStrings)) !== null) {
+    identifiers.add(match[1]);
+  }
+
+  return Array.from(identifiers);
+}
+
+/**
+ * Check if identifier is a JavaScript built-in
+ */
+function isBuiltIn(name: string): boolean {
+  const builtIns = new Set([
+    // Functions
+    'console', 'JSON', 'Object', 'Array', 'String', 'Number', 'Boolean',
+    'Date', 'Math', 'Promise', 'Map', 'Set', 'WeakMap', 'WeakSet',
+    'parseInt', 'parseFloat', 'isNaN', 'isFinite', 'fetch', 'setTimeout',
+    'setInterval', 'clearTimeout', 'clearInterval',
+    // Errors
+    'Error', 'TypeError', 'ReferenceError', 'SyntaxError', 'RangeError',
+    // Common methods that look like function calls
+    'toString', 'valueOf', 'hasOwnProperty', 'length', 'push', 'pop',
+    'map', 'filter', 'reduce', 'find', 'findIndex', 'some', 'every',
+    'includes', 'indexOf', 'slice', 'splice', 'concat', 'join', 'split',
+  ]);
+  return builtIns.has(name);
+}
+
+/**
+ * Check if identifier is a resolver context property
+ */
+function isContextProperty(name: string): boolean {
+  const contextProps = new Set([
+    'params', 'body', 'db', 'headers', 'ctx',
+    // Common db methods
+    'findMany', 'findFirst', 'findUnique', 'create', 'update', 'delete',
+    'count', 'getAll', 'deleteMany', 'updateMany', 'upsert',
+  ]);
+  return contextProps.has(name);
+}
 
 /**
  * Analyze an array of endpoint schemas
@@ -46,19 +186,43 @@ function analyzeEndpoint(
   // Serialize the mock resolver function to string
   const mockResolverSource = serializeMockResolver(endpoint.mockResolver);
 
+  // Get source file for this endpoint
+  const sourceFile = endpointFiles?.get(endpoint.path);
+
   // Check if resolver is a named function (not anonymous or arrow function)
   const resolverName = endpoint.mockResolver.name;
   const isNamedFunction = resolverName && !resolverName.startsWith('bound ') && resolverName !== 'mockResolver';
-  
+
   let mockResolverName: string | undefined;
   let mockResolverImportPath: string | undefined;
-  
+  let resolverDependencies: ResolverDependency[] | undefined;
+
   if (isNamedFunction) {
+    // Named function - will be imported directly
     mockResolverName = resolverName;
-    // Get the source file for this endpoint
-    const sourceFile = endpointFiles?.get(endpoint.path);
     if (sourceFile) {
       mockResolverImportPath = sourceFile;
+    }
+  } else if (sourceFile) {
+    // Inline/anonymous resolver - detect external dependencies
+    const usedIdentifiers = detectUsedIdentifiers(mockResolverSource);
+
+    if (usedIdentifiers.length > 0) {
+      // Parse imports from source file
+      const fileImports = parseImportsFromFile(sourceFile);
+
+      // Find which used identifiers are imported in the source file
+      const deps: ResolverDependency[] = [];
+      for (const identifier of usedIdentifiers) {
+        const importPath = fileImports.get(identifier);
+        if (importPath) {
+          deps.push({ name: identifier, from: importPath });
+        }
+      }
+
+      if (deps.length > 0) {
+        resolverDependencies = deps;
+      }
     }
   }
 
@@ -74,6 +238,8 @@ function analyzeEndpoint(
     mockResolverSource,
     mockResolverName,
     mockResolverImportPath,
+    sourceFile,
+    resolverDependencies,
     description: endpoint.description,
   };
 }
