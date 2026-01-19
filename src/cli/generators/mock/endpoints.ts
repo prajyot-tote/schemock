@@ -569,11 +569,12 @@ export function generateEndpointResolvers(endpoints: AnalyzedEndpoint[], outputD
       }
 
       // Use the named resolver if available, otherwise use serialized source
-      // Cast to the typed resolver function for proper type inference
+      // Wrap in parentheses and cast to the typed resolver function for proper type inference
       if (endpoint.mockResolverName) {
         code.line(`${endpoint.name}: ${endpoint.mockResolverName} as ${endpoint.pascalName}ResolverFn,`);
       } else {
-        code.line(`${endpoint.name}: ${endpoint.mockResolverSource} as ${endpoint.pascalName}ResolverFn,`);
+        // Wrap inline resolver in parentheses to allow type assertion
+        code.line(`${endpoint.name}: (${endpoint.mockResolverSource}) as ${endpoint.pascalName}ResolverFn,`);
       }
       code.line();
     }
