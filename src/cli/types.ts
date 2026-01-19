@@ -52,6 +52,10 @@ export interface SupabaseAdapterConfig {
   tableMap?: Record<string, string>;
   /** Environment variable prefix */
   envPrefix?: string;
+  /** Generate SQL migrations (default: false) */
+  migrations?: boolean;
+  /** Directory for migration files (default: './supabase/migrations') */
+  migrationsDir?: string;
 }
 
 /**

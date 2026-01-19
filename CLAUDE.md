@@ -236,11 +236,11 @@ To modify generated types, hooks, or clients:
 
 ---
 
-## Mock Client - Interceptor Pattern
+## Client Interceptor Pattern (Mock & Supabase)
 
-The generated mock client uses a production-ready interceptor pattern for centralized auth and error handling.
+Both the **Mock** and **Supabase** generated clients use a production-ready interceptor pattern for centralized auth and error handling. This provides a consistent API across development (mock) and production (Supabase).
 
-### Usage with React Hooks (Recommended)
+### Usage with React Hooks (Recommended - Mock only)
 
 Use `SchemockProvider` to inject a configured client into all generated hooks:
 
@@ -279,10 +279,15 @@ function MyComponent() {
 }
 ```
 
-### Direct API Usage (Without Hooks)
+### Direct API Usage (Mock & Supabase)
+
+Works identically for both mock and Supabase clients:
 
 ```typescript
-import { createClient } from './generated/client';
+// For mock:
+import { createClient } from './generated/mock/client';
+// For Supabase:
+import { createClient } from './generated/supabase/client';
 
 const api = createClient({
   onRequest: (ctx) => {
@@ -301,15 +306,30 @@ const posts = await api.post.list();
 
 ### Exported Types (Public API)
 
-| Export | Purpose |
-|--------|---------|
-| `createClient(config?)` | Factory to create configured client |
-| `SchemockProvider` | React provider for client injection into hooks |
-| `useSchemockClient()` | Hook to access configured client from context |
-| `ClientConfig` | Type for interceptor configuration |
-| `RequestContext` | Type for onRequest hook |
-| `ApiError` | Error class with status codes |
-| `api` | Default client (no config) |
+| Export | Mock | Supabase | Purpose |
+|--------|------|----------|---------|
+| `createClient(config?)` | ✅ | ✅ | Factory to create configured client |
+| `ClientConfig` | ✅ | ✅ | Type for interceptor configuration |
+| `RequestContext` | ✅ | ✅ | Type for onRequest hook |
+| `ApiError` | ✅ | ✅ | Error class with status codes |
+| `ApiClient` | ✅ | ✅ | Type interface for the API client |
+| `api` | ✅ | ✅ | Default client (no config) |
+| `supabase` | ❌ | ✅ | Raw Supabase client instance |
+| `SchemockProvider` | ✅ | ❌ | React provider for hooks |
+| `useSchemockClient()` | ✅ | ❌ | Hook to access client from context |
+
+### Supabase Error Code Mapping
+
+The Supabase client maps PostgreSQL/PostgREST error codes to HTTP status codes:
+
+| Code | HTTP Status | Meaning |
+|------|-------------|---------|
+| `PGRST116` | 404 | Row not found |
+| `23505` | 409 | Unique constraint violation |
+| `23503` | 400 | Foreign key violation |
+| `42501` | 403 | RLS policy violation |
+| `PGRST302` | 401 | JWT expired |
+| `PGRST303` | 401 | Invalid JWT |
 
 ### Internal Types (Not Exported - Mock Only)
 

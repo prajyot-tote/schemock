@@ -755,7 +755,7 @@ Schemock supports multiple backend adapters with a unified API. The `mock` adapt
 |------------|------------------------------------------------------------------|
 | `mock`     | Mock database with pluggable storage (in-memory or persistent)    |
 | `pglite`   | Real PostgreSQL in the browser via PGlite (IndexedDB/OPFS)       |
-| `supabase` | Supabase client integration                                      |
+| `supabase` | Supabase client with interceptor pattern for auth & error handling |
 | `firebase` | Firebase/Firestore client integration                            |
 | `fetch`    | Generic REST API client                                          |
 | `graphql`  | Apollo Client integration                                        |
@@ -764,6 +764,37 @@ Schemock supports multiple backend adapters with a unified API. The `mock` adapt
 # Generate for specific adapter
 npx schemock generate --adapter supabase
 npx schemock generate --adapter pglite
+```
+
+### Supabase Interceptor Pattern
+
+The Supabase adapter generates a `createClient()` factory with interceptors for centralized auth and error handling:
+
+```typescript
+import { createClient, ApiError } from './generated/supabase';
+
+const api = createClient({
+  // Add auth headers to every request
+  onRequest: (ctx) => {
+    const token = localStorage.getItem('authToken');
+    if (token) {
+      ctx.headers.Authorization = `Bearer ${token}`;
+    }
+    return ctx;
+  },
+  // Centralized error handling
+  onError: (error: ApiError) => {
+    if (error.status === 401) {
+      window.location.href = '/login';
+    }
+    // error.code contains PostgreSQL/PostgREST error codes
+    // error.operation contains the operation name (e.g., 'users.get')
+  }
+});
+
+// Auth is automatic for all operations
+const users = await api.users.list();
+const user = await api.users.get('123');
 ```
 
 > **Note:** The `mock` adapter is not limited to in-memory mocks. You can enable persistence (e.g., localStorage) by configuring the storage driver.

@@ -32,6 +32,8 @@ import {
   generateEndpointResolvers,
 } from './mock/endpoints';
 import { generateSupabaseClient } from './supabase/client';
+import { generateSupabaseMigration } from './supabase/migrations';
+import { generateSupabaseEndpoints, generateSupabaseEndpointFunctions } from './supabase/endpoints';
 import { generateFirebaseClient } from './firebase/client';
 import { generateFetchClient } from './fetch/client';
 import { generatePGliteDb, generatePGliteClient, generatePGliteSeed } from './pglite';
@@ -194,7 +196,7 @@ async function generateClientTarget(
       files.push(...(await generateMockTarget(targetSchemas, endpoints, outputDir, config, options)));
       break;
     case 'supabase':
-      files.push(...(await generateSupabaseTarget(targetSchemas, outputDir, config, options)));
+      files.push(...(await generateSupabaseTarget(targetSchemas, endpoints, outputDir, config, options)));
       break;
     case 'firebase':
       files.push(...(await generateFirebaseTarget(targetSchemas, outputDir, config, options)));
@@ -290,14 +292,51 @@ async function generateMockTarget(
  */
 async function generateSupabaseTarget(
   schemas: AnalyzedSchema[],
+  endpoints: AnalyzedEndpoint[],
   outputDir: string,
   config: SchemockConfig,
   options: GenerateOptions
 ): Promise<string[]> {
+  const files: string[] = [];
   const supabaseConfig = config.adapters?.supabase || {};
+  const hasEndpoints = endpoints.length > 0;
+
   const clientCode = generateSupabaseClient(schemas, supabaseConfig);
   await writeOutput(join(outputDir, 'client.ts'), clientCode, options.dryRun);
-  return ['client.ts'];
+  files.push('client.ts');
+
+  // Generate endpoints if present
+  if (hasEndpoints) {
+    const endpointsCode = generateSupabaseEndpoints(endpoints, supabaseConfig);
+    await writeOutput(join(outputDir, 'endpoints.ts'), endpointsCode, options.dryRun);
+    files.push('endpoints.ts');
+  }
+
+  // Generate migrations if enabled
+  if (supabaseConfig.migrations) {
+    const migrationsDir = supabaseConfig.migrationsDir || './supabase/migrations';
+    const timestamp = new Date().toISOString().replace(/[-:T]/g, '').slice(0, 14);
+    const migrationFileName = `${timestamp}_schemock_init.sql`;
+
+    if (!options.dryRun) {
+      await mkdir(migrationsDir, { recursive: true });
+    }
+
+    let migrationCode = generateSupabaseMigration(schemas, supabaseConfig);
+
+    // Append RPC functions if there are endpoints
+    if (hasEndpoints) {
+      migrationCode += '\n\n' + generateSupabaseEndpointFunctions(endpoints, supabaseConfig);
+    }
+
+    await writeOutput(join(migrationsDir, migrationFileName), migrationCode, options.dryRun);
+
+    // Store relative path for reporting
+    const relativePath = join(migrationsDir, migrationFileName);
+    console.log(`   ✓ ${relativePath} (SQL migration)`);
+  }
+
+  return files;
 }
 
 /**
@@ -468,7 +507,11 @@ function generateClientIndex(targetType: TargetType, hasEndpoints: boolean = fal
   }
 
   if (targetType === 'supabase') {
-    lines.push("export { supabase } from './client';");
+    lines.push("export { supabase, ApiError, type ClientConfig, type RequestContext, type ApiClient } from './client';");
+
+    if (hasEndpoints) {
+      lines.push("export { endpoints, createEndpoints, type EndpointsClient } from './endpoints';");
+    }
   }
 
   return lines.join('\n');
