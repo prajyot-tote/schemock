@@ -89,12 +89,11 @@ export const postSchema = defineData('post', {
   id: field.uuid(),
   title: field.lorem.sentence(),
   content: field.lorem.paragraphs(3),
-  authorId: field.ref('user'),
+  authorId: field.uuid(),
   published: field.boolean().default(false),
-}, {
-  relations: {
-    author: belongsTo('user', 'authorId'),
-  },
+
+  // Relations are defined inline with fields
+  author: belongsTo('user', { foreignKey: 'authorId' }),
 });
 ```
 
@@ -471,7 +470,7 @@ const User = defineData('user', {
 
 const Post = defineData('post', {
   id: field.uuid(),
-  authorId: field.ref('user'),
+  authorId: field.uuid(),  // Foreign key field
   title: field.string(),
   // Inverse relation
   author: belongsTo('user', { foreignKey: 'authorId' }),
@@ -681,7 +680,7 @@ Benefits of named functions:
 ```typescript
 const Post = defineData('post', {
   id: field.uuid(),
-  authorId: field.ref('user'),
+  authorId: field.uuid(),
   tenantId: field.uuid(),
   title: field.string(),
 }, {
@@ -699,7 +698,7 @@ const Post = defineData('post', {
 ```typescript
 const Post = defineData('post', {
   id: field.uuid(),
-  authorId: field.ref('user'),
+  authorId: field.uuid(),
   published: field.boolean().default(false),
 }, {
   rls: {
@@ -966,8 +965,8 @@ src/schemas/
 2. **References are string-based** - Relations use entity names, not imports:
    ```typescript
    // entities/post.ts
-   belongsTo('user')  // References 'user' by name, not import
-   field.ref('user')  // Same - string reference
+   belongsTo('user', { foreignKey: 'authorId' })  // References 'user' by name, not import
+   field.ref('user')  // Same - string reference (for semantic foreign keys)
    ```
 3. **Merging happens before analysis** - All schemas are combined, so cross-file references resolve correctly
 4. **Endpoints access all entities** - `mockResolver` receives `db` with every entity:
@@ -999,20 +998,16 @@ export default {
 export const User = defineData('user', {
   id: field.uuid(),
   name: field.string(),
-}, {
-  relations: {
-    posts: hasMany('post'),  // String reference to Post
-  },
+  // Relations are defined inline with fields
+  posts: hasMany('post', { foreignKey: 'authorId' }),
 });
 
 // entities/post.ts (separate file)
 export const Post = defineData('post', {
   id: field.uuid(),
-  authorId: field.ref('user'),  // String reference to User
-}, {
-  relations: {
-    author: belongsTo('user'),  // String reference to User
-  },
+  authorId: field.uuid(),  // Foreign key field
+  // Relations are defined inline with fields
+  author: belongsTo('user', { foreignKey: 'authorId' }),
 });
 
 // endpoints/stats.ts (separate file)

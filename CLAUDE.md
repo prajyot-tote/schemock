@@ -368,18 +368,20 @@ export const userSchema = defineData('user', {
   name: field.string(),
   role: field.enum(['admin', 'user']).default('user'),
   avatar: field.url().nullable(),
-  createdAt: field.timestamp().default(new Date()),
+  createdAt: field.date().readOnly(),
+
+  // Relations are defined inline with fields
+  posts: hasMany('post', { foreignKey: 'authorId' }),
 });
 
 export const postSchema = defineData('post', {
   id: field.uuid(),
   title: field.string(),
   content: field.string(),
-  authorId: field.ref('user'),
-}, {
-  relations: {
-    author: belongsTo('user', 'authorId'),
-  },
+  authorId: field.uuid(),  // Foreign key field
+
+  // Relations are defined inline with fields
+  author: belongsTo('user', { foreignKey: 'authorId' }),
 });
 ```
 
@@ -394,9 +396,8 @@ export const postSchema = defineData('post', {
 | `field.number()` | Number | `age: field.number()` |
 | `field.boolean()` | True/false | `active: field.boolean()` |
 | `field.enum([...])` | Enum values | `status: field.enum(['draft', 'published'])` |
-| `field.timestamp()` | Date/time | `createdAt: field.timestamp()` |
-| `field.date()` | Date only | `birthDate: field.date()` |
-| `field.ref('entity')` | Foreign key | `authorId: field.ref('user')` |
+| `field.date()` | Date/time | `createdAt: field.date()` |
+| `field.ref('entity')` | Semantic foreign key | `authorId: field.ref('user')` |
 | `field.json()` | JSON object | `metadata: field.json()` |
 
 ### Field Modifiers
@@ -408,20 +409,39 @@ export const postSchema = defineData('post', {
 
 ### Relations
 
+Relations are defined **inline with field definitions**, not in a separate `relations` option object.
+
 ```typescript
-import { hasMany, belongsTo, hasOne, manyToMany } from 'schemock/schema';
+import { defineData, field, hasMany, belongsTo, hasOne } from 'schemock/schema';
 
 // One-to-many: User has many Posts
-hasMany('post', 'authorId')
+const User = defineData('user', {
+  id: field.uuid(),
+  posts: hasMany('post', { foreignKey: 'authorId' }),
+});
 
 // Many-to-one: Post belongs to User
-belongsTo('user', 'authorId')
+const Post = defineData('post', {
+  id: field.uuid(),
+  authorId: field.uuid(),  // Foreign key stored on this entity
+  author: belongsTo('user', { foreignKey: 'authorId' }),
+});
 
 // One-to-one: User has one Profile
-hasOne('profile', 'userId')
+const UserWithProfile = defineData('user', {
+  id: field.uuid(),
+  profile: hasOne('userProfile', { foreignKey: 'userId' }),
+});
 
-// Many-to-many: Post has many Tags
-manyToMany('tag', 'post_tags')
+// Many-to-many: User has many Followers (through junction table)
+const UserWithFollowers = defineData('user', {
+  id: field.uuid(),
+  followers: hasMany('user', {
+    through: 'follow',
+    foreignKey: 'followingId',
+    otherKey: 'followerId',
+  }),
+});
 ```
 
 ### Row-Level Security (RLS)
@@ -432,7 +452,7 @@ Add `rls` to schema options to enable row-level security:
 ```typescript
 export const postSchema = defineData('post', {
   id: field.uuid(),
-  authorId: field.ref('user'),
+  authorId: field.uuid(),
   title: field.string(),
 }, {
   rls: {
@@ -448,7 +468,7 @@ export const postSchema = defineData('post', {
 ```typescript
 export const postSchema = defineData('post', {
   id: field.uuid(),
-  authorId: field.ref('user'),
+  authorId: field.uuid(),
   published: field.boolean(),
 }, {
   rls: {
@@ -476,7 +496,7 @@ const api = createClient({
 |------|------------|
 | Add new entity | Create new schema file in `src/schemas/`, run `npx schemock generate` |
 | Add field | Edit schema file, run `npx schemock generate` |
-| Add relation | Add to schema `relations` object, run `npx schemock generate` |
+| Add relation | Add inline with field definitions, run `npx schemock generate` |
 | Change field type | Edit schema file, run `npx schemock generate` |
 | Fix generated code bug | **Report issue at GitHub, don't edit generated files** |
 
