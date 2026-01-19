@@ -258,6 +258,7 @@ export function generateEndpointHandlers(endpoints: AnalyzedEndpoint[]): string 
 function generateHandler(code: CodeBuilder, endpoint: AnalyzedEndpoint): void {
   const { name, method, path, params, body, pathParams } = endpoint;
   const httpMethod = method.toLowerCase();
+  const hasBody = body.length > 0;
 
   code.comment(`${method} ${path}`);
   code.block(`http.${httpMethod}('${path}', async ({ request, params: pathParams }) => {`, () => {
@@ -284,26 +285,29 @@ function generateHandler(code: CodeBuilder, endpoint: AnalyzedEndpoint): void {
         }
       }, '};');
       code.line();
-    }
-
-    // Parse body for POST/PUT/PATCH
-    if (body.length > 0) {
-      code.line('const body = await request.json();');
+    } else {
+      // No params - provide empty object for consistent context
+      code.line('const params = {};');
       code.line();
     }
 
-    // Build context object
-    const ctxParts: string[] = ['db'];
-    if (params.length > 0 || pathParams.length > 0) ctxParts.push('params');
-    if (body.length > 0) ctxParts.push('body');
-    code.line('const headers: Record<string, string> = {};');
-    code.line("request.headers.forEach((value, key) => { headers[key] = value; });");
-    ctxParts.push('headers');
+    // Parse body for POST/PUT/PATCH, or provide empty object for GET
+    if (hasBody) {
+      code.line('const body = await request.json();');
+    } else {
+      // No body - provide empty object for consistent context
+      code.line('const body = {};');
+    }
     code.line();
 
-    // Call resolver with try/catch
+    // Build headers object
+    code.line('const headers: Record<string, string> = {};');
+    code.line("request.headers.forEach((value, key) => { headers[key] = value; });");
+    code.line();
+
+    // Call resolver with complete context (always includes params, body, db, headers)
     code.block('try {', () => {
-      code.line(`const result = await endpointResolvers.${name}({ ${ctxParts.join(', ')} });`);
+      code.line(`const result = await endpointResolvers.${name}({ db, params, body, headers });`);
       code.line('return HttpResponse.json(result);');
     }, '} catch (error) {');
     code.indent();
@@ -369,18 +373,29 @@ export function generateEndpointResolvers(endpoints: AnalyzedEndpoint[], outputD
   code.comment('consider using named exported functions instead - they will be automatically imported.');
   code.line();
 
-  // Type imports - import Database for proper typing
+  // Type imports - import Database and endpoint types for proper typing
   code.line("import type { Database } from './db';");
+  code.line("import type * as Types from './types';");
   code.line();
 
-  // Create a typed resolver context that uses the Database type
-  code.comment('Resolver context with typed database access');
-  code.block('export interface ResolverContext {', () => {
-    code.line('params: Record<string, unknown>;');
-    code.line('body: Record<string, unknown>;');
+  // Create a base resolver context interface
+  code.comment('Base resolver context with typed database access');
+  code.block('export interface ResolverContext<TParams = Record<string, unknown>, TBody = Record<string, unknown>> {', () => {
+    code.line('params: TParams;');
+    code.line('body: TBody;');
     code.line('db: Database;');
     code.line('headers: Record<string, string>;');
   });
+  code.line();
+
+  // Generate per-endpoint typed context interfaces
+  code.comment('Per-endpoint typed resolver contexts');
+  for (const endpoint of endpoints) {
+    const { pascalName, params, body } = endpoint;
+    const paramsType = params.length > 0 ? `Types.${pascalName}Params` : 'Record<string, never>';
+    const bodyType = body.length > 0 ? `Types.${pascalName}Body` : 'Record<string, never>';
+    code.line(`export type ${pascalName}ResolverContext = ResolverContext<${paramsType}, ${bodyType}>;`);
+  }
   code.line();
 
   // Add HttpError class for resolver error handling
@@ -402,7 +417,8 @@ export function generateEndpointResolvers(endpoints: AnalyzedEndpoint[], outputD
   const externalResolvers = new Map<string, { name: string; importPath: string }>();
 
   // Collect unique inline resolver dependencies (functions used in inline resolvers)
-  const inlineDependencies = new Map<string, { name: string; importPath: string }>();
+  // Track source file for relative path resolution
+  const inlineDependencies = new Map<string, { name: string; importPath: string; sourceFile?: string }>();
 
   for (const endpoint of endpoints) {
     if (endpoint.mockResolverName && endpoint.mockResolverImportPath) {
@@ -424,6 +440,7 @@ export function generateEndpointResolvers(endpoints: AnalyzedEndpoint[], outputD
           inlineDependencies.set(key, {
             name: dep.name,
             importPath: dep.from,
+            sourceFile: endpoint.sourceFile,
           });
         }
       }
@@ -481,45 +498,82 @@ export function generateEndpointResolvers(endpoints: AnalyzedEndpoint[], outputD
     code.line();
     code.comment('Dependencies used by inline resolvers');
 
-    // Group by import path
-    const importsByPath = new Map<string, string[]>();
-    for (const { name, importPath } of inlineDependencies.values()) {
-      if (!importsByPath.has(importPath)) {
-        importsByPath.set(importPath, []);
+    // Group by resolved import path (after resolving relative paths)
+    const importsByResolvedPath = new Map<string, string[]>();
+    for (const { name, importPath, sourceFile } of inlineDependencies.values()) {
+      let resolvedPath = importPath;
+
+      // If path is relative (starts with '.'), resolve from source file's directory
+      if (importPath.startsWith('.') && sourceFile && outputDir) {
+        // Get the directory of the source file
+        const toPosix = (p: string) => p.replace(/\\/g, '/');
+        const sourceDir = toPosix(sourceFile).replace(/\/[^/]+$/, ''); // dirname
+        // Resolve the relative import to an absolute path
+        const parts = sourceDir.split('/').filter(Boolean);
+        const importParts = importPath.split('/');
+        for (const part of importParts) {
+          if (part === '..') {
+            parts.pop();
+          } else if (part !== '.') {
+            parts.push(part);
+          }
+        }
+        const absolutePath = '/' + parts.join('/');
+        // Calculate relative path from output directory to the resolved path
+        resolvedPath = calculateRelativePath(absolutePath);
+      }
+
+      if (!importsByResolvedPath.has(resolvedPath)) {
+        importsByResolvedPath.set(resolvedPath, []);
       }
       // Avoid duplicates within same path
-      const names = importsByPath.get(importPath)!;
+      const names = importsByResolvedPath.get(resolvedPath)!;
       if (!names.includes(name)) {
         names.push(name);
       }
     }
 
     // Generate import statements
-    for (const [importPath, names] of importsByPath) {
-      // For inline dependencies, the importPath is the module path from the original import
-      // We need to keep it as-is (e.g., './utils' or 'bcrypt') rather than calculating relative
-      code.line(`import { ${names.join(', ')} } from '${importPath}';`);
+    for (const [resolvedPath, names] of importsByResolvedPath) {
+      code.line(`import { ${names.join(', ')} } from '${resolvedPath}';`);
     }
   }
   
   code.line();
 
-  // Resolver type using the locally defined ResolverContext with Database typing
-  code.line('type ResolverFn = (ctx: ResolverContext) => unknown | Promise<unknown>;');
+  // Generate typed resolver function types for each endpoint
+  code.comment('Typed resolver function types');
+  for (const endpoint of endpoints) {
+    const { pascalName } = endpoint;
+    code.line(
+      `type ${pascalName}ResolverFn = (ctx: ${pascalName}ResolverContext) => Types.${pascalName}Response | Promise<Types.${pascalName}Response>;`
+    );
+  }
   code.line();
 
-  code.block('export const endpointResolvers: Record<string, ResolverFn> = {', () => {
+  // Generate the resolver interface for type safety
+  code.comment('Typed endpoint resolvers interface');
+  code.block('export interface EndpointResolvers {', () => {
+    for (const endpoint of endpoints) {
+      const { name, pascalName } = endpoint;
+      code.line(`${name}: ${pascalName}ResolverFn;`);
+    }
+  });
+  code.line();
+
+  code.block('export const endpointResolvers: EndpointResolvers = {', () => {
     for (const endpoint of endpoints) {
       code.comment(`${endpoint.method} ${endpoint.path}`);
       if (endpoint.description) {
         code.comment(endpoint.description);
       }
-      
+
       // Use the named resolver if available, otherwise use serialized source
+      // Cast to the typed resolver function for proper type inference
       if (endpoint.mockResolverName) {
-        code.line(`${endpoint.name}: ${endpoint.mockResolverName},`);
+        code.line(`${endpoint.name}: ${endpoint.mockResolverName} as ${endpoint.pascalName}ResolverFn,`);
       } else {
-        code.line(`${endpoint.name}: ${endpoint.mockResolverSource},`);
+        code.line(`${endpoint.name}: ${endpoint.mockResolverSource} as ${endpoint.pascalName}ResolverFn,`);
       }
       code.line();
     }
