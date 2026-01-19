@@ -321,6 +321,42 @@ These simulate backend behavior and are **not** part of the public API:
 
 ---
 
+## Inline Resolver Limitations (AI Agents: Read This)
+
+When implementing custom endpoints with inline `mockResolver` functions:
+
+### Functions That Will NOT Be Copied
+
+1. **Transitive dependencies** - If `funcA()` calls `funcB()`, but only `funcA` is used in the resolver, `funcB` will NOT be copied
+2. **Arrow functions without parens** - `const fn = x => x * 2` is NOT detected (use `const fn = (x) => x * 2`)
+3. **Functions with complex nested type params** - May have edge cases
+
+### Recommended Pattern
+
+For resolvers with helper functions, always use **named exported functions**:
+
+```typescript
+// ✅ GOOD - Named function, all deps available
+export async function searchResolver({ params, db }) {
+  return processResults(db.user.findMany({ ... }));
+}
+
+export const SearchEndpoint = defineEndpoint('/api/search', {
+  mockResolver: searchResolver  // Imported, not serialized
+});
+
+// ❌ AVOID - Inline with local helpers
+function processResults(data) { ... }  // May not be copied!
+
+export const SearchEndpoint = defineEndpoint('/api/search', {
+  mockResolver: async ({ params, db }) => {
+    return processResults(db.user.findMany({ ... }));  // Risk of missing function
+  }
+});
+```
+
+---
+
 ## Schema DSL Quick Reference
 
 ```typescript

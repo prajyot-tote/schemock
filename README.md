@@ -609,6 +609,71 @@ export const HealthEndpoint = defineEndpoint('/api/health', {
 - Easier debugging with meaningful stack traces
 - Cleaner generated code
 
+### Inline Resolver Limitations
+
+When using inline `mockResolver` functions with local helper functions, be aware of these limitations:
+
+#### 1. Only Directly-Used Functions Are Copied
+
+Local functions are only copied if they are **directly called** in a resolver. Transitive dependencies (functions called by other functions) are not automatically detected.
+
+```typescript
+// ❌ Problem: innerHelper won't be copied
+function innerHelper(x: string) { return x.toUpperCase(); }
+function outerHelper(x: string) { return innerHelper(x); }
+
+export const MyEndpoint = defineEndpoint('/api/test', {
+  mockResolver: async ({ body }) => ({
+    result: outerHelper(body.input)  // Only outerHelper is detected
+  })
+});
+
+// ✅ Solution: Use named exported function
+export async function myResolver({ body, db }) {
+  return { result: outerHelper(body.input) };
+}
+
+export const MyEndpoint = defineEndpoint('/api/test', {
+  mockResolver: myResolver  // Function is imported, not serialized
+});
+```
+
+#### 2. Arrow Functions Need Parentheses
+
+Arrow functions without parentheses around parameters are not detected:
+
+```typescript
+// ❌ Not detected
+const double = x => x * 2;
+
+// ✅ Detected
+const double = (x) => x * 2;
+```
+
+#### 3. Recommended: Use Named Functions for Complex Logic
+
+For resolvers with helper functions, use named exported functions instead of inline resolvers:
+
+```typescript
+// Recommended approach
+export async function loginResolver({ body, db }) {
+  const user = db.user.findFirst({ where: { email: { equals: body.email } } });
+  if (!verifyPassword(body.password, user.hash)) {
+    throw new Error('Invalid credentials');
+  }
+  return { token: generateToken(user.id), user };
+}
+
+export const LoginEndpoint = defineEndpoint('/api/auth/login', {
+  mockResolver: loginResolver  // ✅ Imported directly, full IDE support
+});
+```
+
+Benefits of named functions:
+- All dependencies are available (no serialization)
+- Full IDE support (go-to-definition, refactoring)
+- Better stack traces for debugging
+
 ### Row-Level Security (RLS)
 
 **Scope-based RLS (simple - recommended):**
