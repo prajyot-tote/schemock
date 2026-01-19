@@ -520,6 +520,12 @@ export interface AnalyzedEndpoint {
   response: AnalyzedEndpointField[];
   /** Serialized mock resolver function source */
   mockResolverSource: string;
+  /** Name of the resolver function (if it's a named function) */
+  mockResolverName?: string;
+  /** Import path for the resolver (if external) */
+  mockResolverImportPath?: string;
+  /** Export name in the source file */
+  mockResolverExportName?: string;
   /** Description */
   description?: string;
 }

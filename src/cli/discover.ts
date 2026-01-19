@@ -20,6 +20,8 @@ export interface DiscoveryResult {
   endpoints: EndpointSchema[];
   /** File paths where schemas were found */
   files: string[];
+  /** Map of endpoint paths to their source file paths */
+  endpointFiles?: Map<string, string>;
 }
 
 /**
@@ -186,6 +188,7 @@ export async function discoverSchemas(pattern: string): Promise<DiscoveryResult>
   const schemas: EntitySchema[] = [];
   const endpoints: EndpointSchema[] = [];
   const loadedFiles: string[] = [];
+  const endpointFiles = new Map<string, string>();
 
   for (const file of files) {
     try {
@@ -201,6 +204,8 @@ export async function discoverSchemas(pattern: string): Promise<DiscoveryResult>
         } else if (isEndpointSchema(value)) {
           endpoints.push(value);
           foundSchema = true;
+          // Track which file this endpoint came from
+          endpointFiles.set(value.path, file);
         }
       }
 
@@ -216,7 +221,7 @@ export async function discoverSchemas(pattern: string): Promise<DiscoveryResult>
     throw new Error('No schemas found. Make sure your schema files export defineData() or defineEndpoint() results.');
   }
 
-  return { schemas, endpoints, files: loadedFiles };
+  return { schemas, endpoints, files: loadedFiles, endpointFiles };
 }
 
 /**

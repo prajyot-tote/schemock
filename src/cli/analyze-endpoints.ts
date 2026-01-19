@@ -14,16 +14,23 @@ import type { AnalyzedEndpoint, AnalyzedEndpointField } from './types';
  * Analyze an array of endpoint schemas
  *
  * @param endpoints - Array of endpoint schemas from discovery
+ * @param endpointFiles - Optional map of endpoint paths to their source file paths
  * @returns Array of analyzed endpoints ready for code generation
  */
-export function analyzeEndpoints(endpoints: EndpointSchema[]): AnalyzedEndpoint[] {
-  return endpoints.map(analyzeEndpoint);
+export function analyzeEndpoints(
+  endpoints: EndpointSchema[],
+  endpointFiles?: Map<string, string>
+): AnalyzedEndpoint[] {
+  return endpoints.map((endpoint) => analyzeEndpoint(endpoint, endpointFiles));
 }
 
 /**
  * Analyze a single endpoint schema
  */
-function analyzeEndpoint(endpoint: EndpointSchema): AnalyzedEndpoint {
+function analyzeEndpoint(
+  endpoint: EndpointSchema,
+  endpointFiles?: Map<string, string>
+): AnalyzedEndpoint {
   // Derive name from path
   const name = deriveEndpointName(endpoint.path);
   const pascalName = toPascalCase(name);
@@ -39,6 +46,22 @@ function analyzeEndpoint(endpoint: EndpointSchema): AnalyzedEndpoint {
   // Serialize the mock resolver function to string
   const mockResolverSource = serializeMockResolver(endpoint.mockResolver);
 
+  // Check if resolver is a named function (not anonymous or arrow function)
+  const resolverName = endpoint.mockResolver.name;
+  const isNamedFunction = resolverName && !resolverName.startsWith('bound ') && resolverName !== 'mockResolver';
+  
+  let mockResolverName: string | undefined;
+  let mockResolverImportPath: string | undefined;
+  
+  if (isNamedFunction) {
+    mockResolverName = resolverName;
+    // Get the source file for this endpoint
+    const sourceFile = endpointFiles?.get(endpoint.path);
+    if (sourceFile) {
+      mockResolverImportPath = sourceFile;
+    }
+  }
+
   return {
     path: endpoint.path,
     method: endpoint.method,
@@ -49,6 +72,8 @@ function analyzeEndpoint(endpoint: EndpointSchema): AnalyzedEndpoint {
     body,
     response,
     mockResolverSource,
+    mockResolverName,
+    mockResolverImportPath,
     description: endpoint.description,
   };
 }

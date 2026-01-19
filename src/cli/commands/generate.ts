@@ -50,7 +50,7 @@ export async function generate(options: GenerateOptions): Promise<void> {
 
   // 2. Discover schemas and endpoints
   console.log('📦 Discovering schemas...');
-  const { schemas, endpoints, files } = await discoverSchemas(config.schemas);
+  const { schemas, endpoints, files, endpointFiles } = await discoverSchemas(config.schemas);
 
   for (const file of files) {
     console.log(`   Found: ${getRelativePath(file)}`);
@@ -62,7 +62,7 @@ export async function generate(options: GenerateOptions): Promise<void> {
   const analyzed = analyzeSchemas(schemas, { ...config, adapter });
 
   // 4. Analyze endpoints
-  const analyzedEndpoints = analyzeEndpoints(endpoints);
+  const analyzedEndpoints = analyzeEndpoints(endpoints, endpointFiles);
 
   if (options.verbose) {
     console.log('📊 Analyzed schemas:');
@@ -276,7 +276,7 @@ async function generateMockAdapter(
     await writeOutput(join(outputDir, 'endpoint-handlers.ts'), endpointHandlersCode, options.dryRun);
     console.log(`   ✓ endpoint-handlers.ts (${endpoints.length} MSW handlers)`);
 
-    const endpointResolversCode = generateEndpointResolvers(endpoints);
+    const endpointResolversCode = generateEndpointResolvers(endpoints, outputDir);
     await writeOutput(join(outputDir, 'endpoint-resolvers.ts'), endpointResolversCode, options.dryRun);
     console.log(`   ✓ endpoint-resolvers.ts (mock resolvers)`);
   }

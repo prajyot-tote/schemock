@@ -273,7 +273,7 @@ async function generateMockTarget(
     await writeOutput(join(outputDir, 'endpoint-handlers.ts'), endpointHandlersCode, options.dryRun);
     files.push('endpoint-handlers.ts');
 
-    const endpointResolversCode = generateEndpointResolvers(endpoints);
+    const endpointResolversCode = generateEndpointResolvers(endpoints, outputDir);
     await writeOutput(join(outputDir, 'endpoint-resolvers.ts'), endpointResolversCode, options.dryRun);
     files.push('endpoint-resolvers.ts');
   }
