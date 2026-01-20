@@ -8,3 +8,8 @@
 export { generatePGliteDb } from './db';
 export { generatePGliteClient } from './client';
 export { generatePGliteSeed } from './seed';
+export {
+  generatePGliteEndpointTypes,
+  generatePGliteEndpointClient,
+  generatePGliteEndpointResolvers,
+} from './endpoints';

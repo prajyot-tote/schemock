@@ -349,11 +349,10 @@ export function generatePGliteDb(schemas: AnalyzedSchema[], config: PGliteAdapte
   code.line('export type TableName = keyof typeof tables;');
   code.line();
 
-  // Check if any schema has RLS enabled
-  const hasRLS = schemas.some((s) => s.rls.enabled);
-  if (hasRLS) {
-    generateRLSHelpers(code);
-  }
+  // Always generate RLS helpers - needed for interceptor pattern
+  // even if no schema has RLS enabled, the client uses withContext
+  // for transaction scoping and context extraction from JWT
+  generateRLSHelpers(code);
 
   return code.toString();
 }
@@ -369,24 +368,27 @@ function generateRLSHelpers(code: CodeBuilder): void {
   code.line();
 
   code.comment('Set context for RLS (sets PostgreSQL session variables)');
+  code.comment('SECURITY: Validates key names and escapes values to prevent SQL injection');
   code.block('export async function setContext(ctx: RLSContext | null): Promise<void> {', () => {
-    code.block('if (ctx) {', () => {
-      code.block('for (const [key, value] of Object.entries(ctx)) {', () => {
-        code.line("if (value !== undefined && value !== null) {");
-        code.line("  await db.exec(`SET LOCAL app.${key} = '${value}'`);");
-        code.line('}');
-      });
-    }, '} else {');
-    code.indent();
-    code.comment('Reset all app.* settings would require knowing which keys were set');
-    code.comment('For simplicity, start a new transaction instead');
-    code.dedent();
-    code.line('}');
+    code.line('if (!ctx) return;');
+    code.line();
+    code.block('for (const [key, value] of Object.entries(ctx)) {', () => {
+      code.line('if (value === undefined || value === null) continue;');
+      code.line();
+      code.comment('Validate key: must start with letter, contain only alphanumeric and underscore');
+      code.line('if (!/^[a-zA-Z][a-zA-Z0-9_]*$/.test(key)) {');
+      code.line('  throw new Error(`Invalid context key: ${key}. Keys must be alphanumeric with underscores.`);');
+      code.line('}');
+      code.line();
+      code.comment('Escape single quotes in value to prevent SQL injection');
+      code.line("const escapedValue = String(value).replace(/'/g, \"''\");");
+      code.line("await db.exec(`SET LOCAL app.${key} = '${escapedValue}'`);");
+    });
   });
   code.line();
 
   code.comment('Execute a function with context (transaction-scoped)');
-  code.block('export async function withContext<T>(ctx: RLSContext, fn: () => Promise<T>): Promise<T> {', () => {
+  code.block('export async function withContext<T>(ctx: RLSContext, fn: () => T | Promise<T>): Promise<T> {', () => {
     code.line("await db.exec('BEGIN');");
     code.block('try {', () => {
       code.line('await setContext(ctx);');
