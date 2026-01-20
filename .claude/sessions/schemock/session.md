@@ -1,7 +1,7 @@
 # Session: schemock
 
 **Started**: 2025-12-10_17:05
-**Last Updated**: 2025-12-11T03:00:00.000Z
+**Last Updated**: 2025-12-15T19:19:29Z
 
 ## Goal
 Design and implement **Schemock** - a schema-first mocking library for frontend developers that:
@@ -92,3 +92,39 @@ Your Code → Generated API Client → Adapter Interface → [Mock|Supabase|REST
 - **Session 1** (2025-12-10): Initial concept, market research, composition approach
 - **Session 2** (2025-12-11): Adapter pattern, full abstraction, security, documentation
 - **Session 3** (2025-12-11): Comparison with existing docs, merge, rename to Schemock, separate repo
+- **Session 4** (2026-01-12): Design doc audit, removed Phase 6 (compile-time elimination), documented architecture shift
+
+## Architecture Shift (Session 4)
+
+**Key Discovery**: The design docs describe a RUNTIME architecture, but the actual implementation uses a CODE GENERATION architecture.
+
+### What Design Docs Describe (Outdated)
+- Schemas registered at runtime
+- Runtime adapter switching via `configureDataLayer()`
+- Babel plugin to remove mock code from production
+- Middleware chains execute at runtime
+
+### What Was Actually Built (Current Reality)
+- Schemas parsed by CLI at generation time
+- Different code generated for each adapter (`schemock generate --adapter supabase`)
+- No Babel plugin needed - mock code simply not generated for production
+- RLS/middleware logic baked into generated code
+
+### Discrepancies in Design Docs
+
+| Document | Issue | Action Needed |
+|----------|-------|---------------|
+| `01-vision-and-usp.md` | USP 6 mentions "Compile-Time Elimination" via Babel | Update to reflect code generation approach |
+| `02-architecture.md` | Was showing Babel transform pipeline | ✅ REWRITTEN |
+| `04-resolver-system.md` | Describes runtime registry and resolver | Clarify this is for mock adapter only |
+| `05-adapters.md` | Shows `configureDataLayer()` runtime switching | Clarify code generation is primary pattern |
+| `08-compile-elimination.md` | Entire document was obsolete | ✅ DELETED |
+| `09-implementation-roadmap.md` | Phase 6 (Compile Elimination) | ✅ REMOVED |
+
+### Why This Matters
+The code generation approach is **simpler and better**:
+1. No complex Babel plugins to maintain
+2. No framework-specific plugins (Vite, Webpack, Next.js)
+3. Explicit control - user knows what code is generated
+4. Works with any bundler out of the box
+5. Type-safe generated code with full IntelliSense

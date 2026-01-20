@@ -83,9 +83,9 @@ describe('Mock DB Generator Integration', () => {
     ]);
   });
 
-  it('omits persistence when persist: false', () => {
+  it('omits persistence when persistence: memory', () => {
     const analyzed = analyzeTestSchemas(blogSchemas);
-    const config: MockAdapterConfig = { persist: false };
+    const config: MockAdapterConfig = { persistence: 'memory' };
     const code = generateMockDb(analyzed, config);
 
     // Should not have persistence functions

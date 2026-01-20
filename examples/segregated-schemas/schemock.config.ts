@@ -34,7 +34,7 @@ const config: SchemockConfig = {
         comment: 30,
       },
       delay: 100,
-      persist: false,
+      persistence: 'memory',
     },
   },
 };

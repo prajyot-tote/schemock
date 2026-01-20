@@ -248,7 +248,7 @@ describe('Generated Code Compilation', () => {
 
     // Generate all required files
     const typesCode = generateTypes(analyzed);
-    const dbCode = generateMockDb(analyzed, { persist: false });
+    const dbCode = generateMockDb(analyzed, { persistence: 'memory' });
     const clientCode = generateMockClient(analyzed);
 
     // Write files to temp directory
@@ -269,7 +269,7 @@ describe('Generated Code Compilation', () => {
     const analyzed = analyzeTestSchemas(rlsSchemas);
 
     const typesCode = generateTypes(analyzed);
-    const dbCode = generateMockDb(analyzed, { persist: false });
+    const dbCode = generateMockDb(analyzed, { persistence: 'memory' });
     const clientCode = generateMockClient(analyzed);
 
     // Write RLS versions with unique names to avoid conflicts

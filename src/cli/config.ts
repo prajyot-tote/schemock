@@ -32,7 +32,7 @@ const MockAdapterConfigSchema = z.object({
   seed: z.record(z.string(), z.number()).optional(),
   delay: z.number().min(0).optional(),
   fakerSeed: z.number().optional(),
-  persist: z.boolean().optional(),
+  persistence: z.enum(['memory', 'localStorage']).optional(),
   storageKey: z.string().optional(),
 }).strict();
 

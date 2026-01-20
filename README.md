@@ -934,7 +934,7 @@ export default defineConfig({
       seed: { user: 5, post: 20 },  // Default seed counts
       delay: 100,                    // Simulated latency (ms)
       fakerSeed: 12345,             // Reproducible data
-      persist: true,                 // localStorage persistence
+      persistence: 'localStorage',   // 'localStorage' or 'memory'
     },
     supabase: {
       envPrefix: 'NEXT_PUBLIC_SUPABASE',

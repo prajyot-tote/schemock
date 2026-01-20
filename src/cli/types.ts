@@ -38,8 +38,8 @@ export interface MockAdapterConfig {
   delay?: number;
   /** Faker seed for reproducible data */
   fakerSeed?: number;
-  /** Enable localStorage persistence (default: true) */
-  persist?: boolean;
+  /** Persistence mode (default: 'localStorage') */
+  persistence?: 'memory' | 'localStorage';
   /** localStorage key prefix (default: 'schemock') */
   storageKey?: string;
 }
