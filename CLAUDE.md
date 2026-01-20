@@ -186,6 +186,7 @@ Any modifications will:
 ./src/generated/api/       ← NEVER MODIFY
 ./src/generated/node/      ← NEVER MODIFY
 ./src/generated/supabase/  ← NEVER MODIFY
+./src/generated/pglite/    ← NEVER MODIFY
 ./src/generated/mock/      ← NEVER MODIFY
 ./src/generated/firebase/  ← NEVER MODIFY
 ./generated/               ← NEVER MODIFY (alternate location)
@@ -236,9 +237,9 @@ To modify generated types, hooks, or clients:
 
 ---
 
-## Client Interceptor Pattern (Mock & Supabase)
+## Client Interceptor Pattern (Mock, PGlite & Supabase)
 
-Both the **Mock** and **Supabase** generated clients use a production-ready interceptor pattern for centralized auth and error handling. This provides a consistent API across development (mock) and production (Supabase).
+All three adapters (**Mock**, **PGlite**, and **Supabase**) use a production-ready interceptor pattern for centralized auth and error handling. This provides a consistent API across development and production.
 
 ### Usage with React Hooks (Recommended - Mock only)
 
@@ -279,13 +280,15 @@ function MyComponent() {
 }
 ```
 
-### Direct API Usage (Mock & Supabase)
+### Direct API Usage (Mock, PGlite & Supabase)
 
-Works identically for both mock and Supabase clients:
+Works identically for mock, PGlite, and Supabase clients:
 
 ```typescript
 // For mock:
 import { createClient } from './generated/mock/client';
+// For PGlite (PostgreSQL in the browser):
+import { createClient } from './generated/pglite/client';
 // For Supabase:
 import { createClient } from './generated/supabase/client';
 
@@ -297,6 +300,7 @@ const api = createClient({
   onError: (error) => {
     if (error.status === 401) window.location.href = '/login';
     if (error.status === 403) toast.error('Access denied');
+    if (error.status === 409) toast.error('Duplicate entry');
   }
 });
 
@@ -306,38 +310,50 @@ const posts = await api.post.list();
 
 ### Exported Types (Public API)
 
-| Export | Mock | Supabase | Purpose |
-|--------|------|----------|---------|
-| `createClient(config?)` | ✅ | ✅ | Factory to create configured client |
-| `ClientConfig` | ✅ | ✅ | Type for interceptor configuration |
-| `RequestContext` | ✅ | ✅ | Type for onRequest hook |
-| `ApiError` | ✅ | ✅ | Error class with status codes |
-| `ApiClient` | ✅ | ✅ | Type interface for the API client |
-| `api` | ✅ | ✅ | Default client (no config) |
-| `supabase` | ❌ | ✅ | Raw Supabase client instance |
-| `SchemockProvider` | ✅ | ❌ | React provider for hooks |
-| `useSchemockClient()` | ✅ | ❌ | Hook to access client from context |
+| Export | Mock | PGlite | Supabase | Purpose |
+|--------|------|--------|----------|---------|
+| `createClient(config?)` | ✅ | ✅ | ✅ | Factory to create configured client |
+| `ClientConfig` | ✅ | ✅ | ✅ | Type for interceptor configuration |
+| `RequestContext` | ✅ | ✅ | ✅ | Type for onRequest hook |
+| `ApiError` | ✅ | ✅ | ✅ | Error class with status codes |
+| `ApiClient` | ✅ | ✅ | ✅ | Type interface for the API client |
+| `api` | ✅ | ✅ | ✅ | Default client (no config) |
+| `supabase` | ❌ | ❌ | ✅ | Raw Supabase client instance |
+| `SchemockProvider` | ✅ | ❌ | ❌ | React provider for hooks |
+| `useSchemockClient()` | ✅ | ❌ | ❌ | Hook to access client from context |
 
-### Supabase Error Code Mapping
+### PostgreSQL Error Code Mapping (PGlite & Supabase)
 
-The Supabase client maps PostgreSQL/PostgREST error codes to HTTP status codes:
+Both PGlite and Supabase clients map PostgreSQL error codes to HTTP status codes:
+
+| Code | HTTP Status | Meaning |
+|------|-------------|---------|
+| `23505` | 409 | Unique constraint violation |
+| `23503` | 400 | Foreign key violation |
+| `23502` | 400 | Not null violation |
+| `23514` | 400 | Check constraint violation |
+| `42501` | 403 | RLS policy violation |
+| `42P01` | 404 | Undefined table |
+| `42703` | 400 | Undefined column |
+| `22P02` | 400 | Invalid text representation |
+
+### Supabase-specific Error Codes
 
 | Code | HTTP Status | Meaning |
 |------|-------------|---------|
 | `PGRST116` | 404 | Row not found |
-| `23505` | 409 | Unique constraint violation |
-| `23503` | 400 | Foreign key violation |
-| `42501` | 403 | RLS policy violation |
 | `PGRST302` | 401 | JWT expired |
 | `PGRST303` | 401 | Invalid JWT |
 
-### Internal Types (Not Exported - Mock Only)
+### Internal Types (Not Exported - Mock & PGlite)
 
 These simulate backend behavior and are **not** part of the public API:
-- `RLSContext` - Internal RLS simulation
+- `RLSContext` - Internal RLS context type
 - `decodeJwtPayload()` - JWT decoding
-- `extractContextFromHeaders()` - Context extraction
-- `rlsEntitySelect/Insert/Update/Delete` - RLS filters
+- `extractContextFromHeaders()` - Context extraction from headers
+- `rlsEntitySelect/Insert/Update/Delete` - RLS filter functions
+- `setContext()` - (PGlite) Sets PostgreSQL session variables
+- `withContext()` - (PGlite) Executes function within transaction with context
 
 ---
 

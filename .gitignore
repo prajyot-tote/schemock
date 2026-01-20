@@ -34,3 +34,6 @@ src/generated/
 .claude/sessions/
 .claude/plans/
 .claude/settings.local.json
+
+# Internal documentation (not yet public)
+ARCHITECTURE.md
