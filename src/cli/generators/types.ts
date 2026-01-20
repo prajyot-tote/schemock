@@ -86,11 +86,11 @@ function generateEntityTypes(code: CodeBuilder, schema: AnalyzedSchema, allSchem
       code.line(`${field.name}${opt}: ${field.tsType};`);
     }
 
-    // Nested creates for hasMany/hasOne
+    // Nested creates for hasMany/hasOne/belongsTo
     for (const rel of relations) {
       if (rel.type === 'hasMany') {
         code.line(`${rel.name}?: ${rel.targetPascal}Create[];`);
-      } else if (rel.type === 'hasOne') {
+      } else if (rel.type === 'hasOne' || rel.type === 'belongsTo') {
         code.line(`${rel.name}?: ${rel.targetPascal}Create;`);
       }
     }

@@ -51,19 +51,47 @@ export function generateSupabaseClient(schemas: AnalyzedSchema[], config: Supaba
   code.line('export const supabase = createSupabaseClient(supabaseUrl, supabaseKey);');
   code.line();
 
-  // Helper for building select with relations
-  code.block('function buildSelect(include?: string[]): string {', () => {
+  // Build schema map for looking up target schemas (needed for relation metadata)
+  const schemaMap = new Map(schemas.map((s) => [s.name, s]));
+
+  // Relation metadata for building proper Supabase selects
+  // belongsTo relations need explicit target table: "author:users(*)"
+  // hasMany/hasOne can use simple syntax: "posts(*)"
+  code.block('const relationMeta: Record<string, Record<string, { type: string; target: string }>> = {', () => {
+    for (const schema of schemas) {
+      if (schema.isJunctionTable) continue;
+      if (schema.relations.length === 0) continue;
+      code.block(`${schema.name}: {`, () => {
+        for (const rel of schema.relations) {
+          const targetSchema = schemaMap.get(rel.resolvedTarget);
+          const targetTable = config.tableMap?.[rel.resolvedTarget] ?? targetSchema?.tableName ?? rel.resolvedTarget + 's';
+          code.line(`${rel.name}: { type: '${rel.type}', target: '${targetTable}' },`);
+        }
+      }, '},');
+    }
+  }, '};');
+  code.line();
+
+  // Helper for building select with relations (now schema-aware)
+  code.block('function buildSelect(entityName: string, include?: string[]): string {', () => {
     code.line("if (!include?.length) return '*';");
-    code.line("return `*, ${include.map(rel => `${rel}(*)`).join(', ')}`;");
+    code.line('const meta = relationMeta[entityName] || {};');
+    code.line('const selectParts = include.map(rel => {');
+    code.line('  const relInfo = meta[rel];');
+    code.line("  if (relInfo?.type === 'belongsTo') {");
+    code.line("    // belongsTo needs explicit target: 'author:users(*)'");
+    code.line('    return `${rel}:${relInfo.target}(*)`;');
+    code.line('  }');
+    code.line("  // hasMany/hasOne can use simple syntax: 'posts(*)'");
+    code.line('  return `${rel}(*)`;');
+    code.line('});');
+    code.line("return `*, ${selectParts.join(', ')}`;");
   });
   code.line();
 
   // Generate the ApiClient type
   generateApiType(code, schemas);
   code.line();
-
-  // Build schema map for looking up target schemas
-  const schemaMap = new Map(schemas.map((s) => [s.name, s]));
 
   // Generate createClient factory
   generateCreateClientFactory(code, schemas, config, schemaMap);
@@ -403,7 +431,7 @@ function generateSupabaseEntityApiFactory(
     code.indent();
     code.line(`executeListRequest<Types.${pascalName}>('${name}.list', async (client) => {`);
     code.indent();
-    code.line('const select = buildSelect(options?.include);');
+    code.line(`const select = buildSelect('${name}', options?.include);`);
     code.line(`let query = client.from('${tableName}').select(select, { count: 'exact' });`);
     code.line();
 
@@ -466,7 +494,7 @@ function generateSupabaseEntityApiFactory(
     code.indent();
     code.line(`executeRequest<Types.${pascalName}>('${name}.get', async (client) => {`);
     code.indent();
-    code.line('const select = buildSelect(options?.include);');
+    code.line(`const select = buildSelect('${name}', options?.include);`);
     code.line(`return await client.from('${tableName}').select(select).eq('id', id).single();`);
     code.dedent();
     code.line(`}).then(data => ({ data: data as Types.${pascalName} })),`);
@@ -503,6 +531,11 @@ function generateSupabaseEntityApiFactory(
 
 /**
  * Generate Supabase create method with nested relation support (factory version)
+ *
+ * Supports:
+ * - hasMany: Create parent first, then children with FK pointing to parent
+ * - hasOne: Create parent first, then child with FK pointing to parent
+ * - belongsTo: Create target first, then parent with FK pointing to target
  */
 function generateSupabaseCreateMethodFactory(
   code: CodeBuilder,
@@ -511,36 +544,62 @@ function generateSupabaseCreateMethodFactory(
   schemaMap: Map<string, AnalyzedSchema>
 ): void {
   const { name, pascalName, tableName, relations } = schema;
-  const nestedRels = relations.filter((r) => r.type === 'hasMany' || r.type === 'hasOne');
+  const childRels = relations.filter((r) => r.type === 'hasMany' || r.type === 'hasOne');
+  const parentRels = relations.filter((r) => r.type === 'belongsTo');
+  const hasNestedRels = childRels.length > 0 || parentRels.length > 0;
 
   code.line(`create: (input: Types.${pascalName}Create) =>`);
   code.indent();
   code.line(`executeRequest<Types.${pascalName}>('${name}.create', async (client) => {`);
   code.indent();
 
-  if (nestedRels.length > 0) {
-    const relNames = nestedRels.map((r) => r.name).join(', ');
-    code.line(`const { ${relNames}, ...data } = input;`);
+  if (hasNestedRels) {
+    const allRelNames = [...childRels, ...parentRels].map((r) => r.name).join(', ');
+    code.line(`const { ${allRelNames}, ...data } = input;`);
+    code.line('// eslint-disable-next-line @typescript-eslint/no-explicit-any');
+    code.line('const insertData: Record<string, any> = { ...data };');
     code.line();
-    code.line(`const result = await client.from('${tableName}').insert(data).select().single();`);
+
+    // Handle belongsTo relations first - create parent, then use its ID
+    if (parentRels.length > 0) {
+      code.comment('Handle belongsTo relations - create parent first');
+      for (const rel of parentRels) {
+        const targetSchema = schemaMap.get(rel.resolvedTarget);
+        const targetTable = config.tableMap?.[rel.resolvedTarget] ?? targetSchema?.tableName ?? rel.resolvedTarget + 's';
+        const fkField = rel.localField || rel.foreignKey;
+
+        code.block(`if (${rel.name}) {`, () => {
+          code.line(`const parentResult = await client.from('${targetTable}').insert(${rel.name}).select().single();`);
+          code.line('if (parentResult.error) return parentResult as { data: null; error: unknown };');
+          code.line(`insertData.${fkField} = parentResult.data.id;`);
+        });
+      }
+      code.line();
+    }
+
+    // Now create the main entity
+    code.line(`const result = await client.from('${tableName}').insert(insertData).select().single();`);
     code.line('if (result.error) return result;');
     code.line('const item = result.data;');
     code.line();
 
-    for (const rel of nestedRels) {
-      // Use target schema's tableName for proper pluralization, fall back to config or simple pluralization
-      const targetSchema = schemaMap.get(rel.target);
-      const targetTable = config.tableMap?.[rel.target] ?? targetSchema?.tableName ?? rel.target + 's';
-      code.block(`if (${rel.name}) {`, () => {
-        if (rel.type === 'hasMany') {
-          code.line(`const nestedData = ${rel.name}.map(nested => ({ ...nested, ${rel.foreignKey}: item.id }));`);
-          code.line(`const nestedResult = await client.from('${targetTable}').insert(nestedData);`);
-          code.line('if (nestedResult.error) return nestedResult as { data: null; error: unknown };');
-        } else {
-          code.line(`const nestedResult = await client.from('${targetTable}').insert({ ...${rel.name}, ${rel.foreignKey}: item.id });`);
-          code.line('if (nestedResult.error) return nestedResult as { data: null; error: unknown };');
-        }
-      });
+    // Handle hasMany/hasOne relations - create children after parent
+    if (childRels.length > 0) {
+      code.comment('Handle hasMany/hasOne relations - create children after parent');
+      for (const rel of childRels) {
+        const targetSchema = schemaMap.get(rel.resolvedTarget);
+        const targetTable = config.tableMap?.[rel.resolvedTarget] ?? targetSchema?.tableName ?? rel.resolvedTarget + 's';
+        code.block(`if (${rel.name}) {`, () => {
+          if (rel.type === 'hasMany') {
+            code.line(`const nestedData = ${rel.name}.map(nested => ({ ...nested, ${rel.foreignKey}: item.id }));`);
+            code.line(`const nestedResult = await client.from('${targetTable}').insert(nestedData);`);
+            code.line('if (nestedResult.error) return nestedResult as { data: null; error: unknown };');
+          } else {
+            code.line(`const nestedResult = await client.from('${targetTable}').insert({ ...${rel.name}, ${rel.foreignKey}: item.id });`);
+            code.line('if (nestedResult.error) return nestedResult as { data: null; error: unknown };');
+          }
+        });
+      }
     }
 
     code.line();
