@@ -29,7 +29,16 @@ import {
 import { generateSupabaseClient } from '../generators/supabase/client';
 import { generateFirebaseClient } from '../generators/firebase/client';
 import { generateFetchClient } from '../generators/fetch/client';
-import { generatePGliteDb, generatePGliteClient, generatePGliteSeed } from '../generators/pglite';
+import {
+  generatePGliteDb,
+  generatePGliteClient,
+  generatePGliteSeed,
+  generatePGliteHandlers,
+  generatePGliteEndpointHandlers,
+  generatePGliteAllHandlersExport,
+  generatePGliteEndpointClient,
+  generatePGliteEndpointResolvers,
+} from '../generators/pglite';
 import { generateHooks } from '../generators/hooks';
 import { generateProvider } from '../generators/provider';
 import { generateFormSchemas } from '../generators/form-schemas';
@@ -198,7 +207,7 @@ export async function generate(options: GenerateOptions): Promise<void> {
       console.log('   ⚠️  GraphQL adapter not yet implemented');
       break;
     case 'pglite':
-      await generatePGliteAdapter(analyzed, outputDir, config, options);
+      await generatePGliteAdapter(analyzed, analyzedEndpoints, outputDir, config, options);
       break;
     default:
       throw new Error(`Unknown adapter: ${adapter}`);
@@ -354,6 +363,7 @@ async function generateFetchAdapter(
  */
 async function generatePGliteAdapter(
   schemas: AnalyzedSchema[],
+  endpoints: AnalyzedEndpoint[],
   outputDir: string,
   config: SchemockConfig,
   options: GenerateOptions
@@ -365,6 +375,7 @@ async function generatePGliteAdapter(
   }
 
   const pgliteConfig = config.adapters?.pglite || {};
+  const hasEndpoints = endpoints.length > 0;
 
   const dbCode = generatePGliteDb(schemas, pgliteConfig);
   await writeOutput(join(outputDir, 'db.ts'), dbCode, options.dryRun);
@@ -377,6 +388,40 @@ async function generatePGliteAdapter(
   const seedCode = generatePGliteSeed(schemas, pgliteConfig);
   await writeOutput(join(outputDir, 'seed.ts'), seedCode, options.dryRun);
   console.log('   ✓ seed.ts (seed/reset utilities)');
+
+  // Routes (reuse from Mock - same structure)
+  const routesCode = generateRoutes(schemas);
+  await writeOutput(join(outputDir, 'routes.ts'), routesCode, options.dryRun);
+  const entityCount = schemas.filter((s) => !s.isJunctionTable).length;
+  console.log(`   ✓ routes.ts (${entityCount} entity route definitions)`);
+
+  // MSW Handlers for CRUD operations
+  const handlersCode = generatePGliteHandlers(schemas, config.apiPrefix || '/api');
+  await writeOutput(join(outputDir, 'handlers.ts'), handlersCode, options.dryRun);
+  const handlerCount = entityCount * 6; // 6 handlers per entity
+  console.log(`   ✓ handlers.ts (${handlerCount} MSW handlers)`);
+
+  // Generate endpoint files if there are any
+  if (hasEndpoints) {
+    console.log('\n🎯 Generating custom endpoints (PGlite)...');
+
+    const endpointClientCode = generatePGliteEndpointClient(endpoints);
+    await writeOutput(join(outputDir, 'endpoints.ts'), endpointClientCode, options.dryRun);
+    console.log(`   ✓ endpoints.ts (${endpoints.length} endpoint client methods)`);
+
+    const endpointHandlersCode = generatePGliteEndpointHandlers(endpoints);
+    await writeOutput(join(outputDir, 'endpoint-handlers.ts'), endpointHandlersCode, options.dryRun);
+    console.log(`   ✓ endpoint-handlers.ts (${endpoints.length} MSW handlers)`);
+
+    const endpointResolversCode = generatePGliteEndpointResolvers(endpoints, outputDir);
+    await writeOutput(join(outputDir, 'endpoint-resolvers.ts'), endpointResolversCode, options.dryRun);
+    console.log(`   ✓ endpoint-resolvers.ts (PGlite resolvers)`);
+  }
+
+  // Combined handlers export
+  const allHandlersCode = generatePGliteAllHandlersExport(hasEndpoints);
+  await writeOutput(join(outputDir, 'all-handlers.ts'), allHandlersCode, options.dryRun);
+  console.log('   ✓ all-handlers.ts (combined handlers export)');
 }
 
 /**
@@ -410,7 +455,14 @@ function generateIndex(adapter: string, hasEndpoints: boolean = false, framework
 
   if (adapter === 'pglite') {
     lines.push("export { db, initDb, resetDb, tables } from './db';");
+    lines.push("export { handlers } from './handlers';");
+    lines.push("export { allHandlers } from './all-handlers';");
     lines.push("export { seed, reset, getAll, count } from './seed';");
+
+    if (hasEndpoints) {
+      lines.push("export { endpoints, createEndpointsClient } from './endpoints';");
+      lines.push("export { endpointHandlers } from './endpoint-handlers';");
+    }
   }
 
   if (adapter === 'supabase') {

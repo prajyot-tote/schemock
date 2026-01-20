@@ -36,7 +36,16 @@ import { generateSupabaseMigration } from './supabase/migrations';
 import { generateSupabaseEndpoints, generateSupabaseEndpointFunctions } from './supabase/endpoints';
 import { generateFirebaseClient } from './firebase/client';
 import { generateFetchClient } from './fetch/client';
-import { generatePGliteDb, generatePGliteClient, generatePGliteSeed } from './pglite';
+import {
+  generatePGliteDb,
+  generatePGliteClient,
+  generatePGliteSeed,
+  generatePGliteHandlers,
+  generatePGliteEndpointHandlers,
+  generatePGliteAllHandlersExport,
+  generatePGliteEndpointClient,
+  generatePGliteEndpointResolvers,
+} from './pglite';
 import { generateHooks } from './hooks';
 import { generateProvider } from './provider';
 
@@ -205,7 +214,7 @@ async function generateClientTarget(
       files.push(...(await generateFetchTarget(targetSchemas, outputDir, config, options)));
       break;
     case 'pglite':
-      files.push(...(await generatePGliteTarget(targetSchemas, outputDir, config, options)));
+      files.push(...(await generatePGliteTarget(targetSchemas, endpoints, outputDir, config, options)));
       break;
     case 'graphql':
       console.log('   ⚠️  GraphQL target not yet implemented');
@@ -374,13 +383,16 @@ async function generateFetchTarget(
  */
 async function generatePGliteTarget(
   schemas: AnalyzedSchema[],
+  endpoints: AnalyzedEndpoint[],
   outputDir: string,
   config: SchemockConfig,
   options: GenerateOptions
 ): Promise<string[]> {
   const files: string[] = [];
   const pgliteConfig = config.adapters?.pglite || {};
+  const hasEndpoints = endpoints.length > 0;
 
+  // Core files
   const dbCode = generatePGliteDb(schemas, pgliteConfig);
   await writeOutput(join(outputDir, 'db.ts'), dbCode, options.dryRun);
   files.push('db.ts');
@@ -392,6 +404,36 @@ async function generatePGliteTarget(
   const seedCode = generatePGliteSeed(schemas, pgliteConfig);
   await writeOutput(join(outputDir, 'seed.ts'), seedCode, options.dryRun);
   files.push('seed.ts');
+
+  // Routes (reuse from Mock - same structure)
+  const routesCode = generateRoutes(schemas);
+  await writeOutput(join(outputDir, 'routes.ts'), routesCode, options.dryRun);
+  files.push('routes.ts');
+
+  // MSW Handlers for CRUD operations
+  const handlersCode = generatePGliteHandlers(schemas, config.apiPrefix || '/api');
+  await writeOutput(join(outputDir, 'handlers.ts'), handlersCode, options.dryRun);
+  files.push('handlers.ts');
+
+  // Custom endpoints (if defined)
+  if (hasEndpoints) {
+    const endpointClientCode = generatePGliteEndpointClient(endpoints);
+    await writeOutput(join(outputDir, 'endpoints.ts'), endpointClientCode, options.dryRun);
+    files.push('endpoints.ts');
+
+    const endpointHandlersCode = generatePGliteEndpointHandlers(endpoints);
+    await writeOutput(join(outputDir, 'endpoint-handlers.ts'), endpointHandlersCode, options.dryRun);
+    files.push('endpoint-handlers.ts');
+
+    const endpointResolversCode = generatePGliteEndpointResolvers(endpoints, outputDir);
+    await writeOutput(join(outputDir, 'endpoint-resolvers.ts'), endpointResolversCode, options.dryRun);
+    files.push('endpoint-resolvers.ts');
+  }
+
+  // Combined handlers export
+  const allHandlersCode = generatePGliteAllHandlersExport(hasEndpoints);
+  await writeOutput(join(outputDir, 'all-handlers.ts'), allHandlersCode, options.dryRun);
+  files.push('all-handlers.ts');
 
   return files;
 }
@@ -503,7 +545,14 @@ function generateClientIndex(targetType: TargetType, hasEndpoints: boolean = fal
 
   if (targetType === 'pglite') {
     lines.push("export { db, initDb, resetDb, tables } from './db';");
+    lines.push("export { handlers } from './handlers';");
+    lines.push("export { allHandlers } from './all-handlers';");
     lines.push("export { seed, reset, getAll, count } from './seed';");
+
+    if (hasEndpoints) {
+      lines.push("export { endpoints, createEndpointsClient } from './endpoints';");
+      lines.push("export { endpointHandlers } from './endpoint-handlers';");
+    }
   }
 
   if (targetType === 'supabase') {
