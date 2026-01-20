@@ -42,6 +42,8 @@ const MockAdapterConfigSchema = z.object({
 const SupabaseAdapterConfigSchema = z.object({
   tableMap: z.record(z.string(), z.string()).optional(),
   envPrefix: z.string().optional(),
+  migrations: z.boolean().optional(),
+  migrationsDir: z.string().optional(),
 }).strict();
 
 /**
