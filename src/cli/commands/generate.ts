@@ -38,6 +38,18 @@ import { generateFormSchemas } from '../generators/form-schemas';
 import { generateAllTargets, legacyConfigToTarget } from '../generators/target-registry';
 
 /**
+ * Check if a package is installed
+ */
+function isPkgInstalled(packageName: string): boolean {
+  try {
+    require.resolve(packageName);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Main generate command
  *
  * @param options - Generation options
@@ -216,6 +228,11 @@ export async function generate(options: GenerateOptions): Promise<void> {
   // Done
   console.log(`\n✅ Generated ${adapter} adapter in ${outputDir}\n`);
 
+  // PGlite-specific reminder
+  if (adapter === 'pglite' && !isPkgInstalled('@electric-sql/pglite')) {
+    console.log('⚠️  Required: npm install @electric-sql/pglite\n');
+  }
+
   const firstSchema = analyzed.find((s) => !s.isJunctionTable);
   if (firstSchema) {
     console.log('Usage:');
@@ -341,6 +358,12 @@ async function generatePGliteAdapter(
   config: SchemockConfig,
   options: GenerateOptions
 ): Promise<void> {
+  // Check if @electric-sql/pglite is installed
+  if (!isPkgInstalled('@electric-sql/pglite')) {
+    console.log('   ⚠️  @electric-sql/pglite not found. Install it:');
+    console.log('      npm install @electric-sql/pglite\n');
+  }
+
   const pgliteConfig = config.adapters?.pglite || {};
 
   const dbCode = generatePGliteDb(schemas, pgliteConfig);
