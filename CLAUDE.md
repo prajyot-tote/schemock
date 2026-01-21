@@ -357,6 +357,60 @@ These simulate backend behavior and are **not** part of the public API:
 
 ---
 
+## API Layers: db vs api (IMPORTANT)
+
+Schemock generates two distinct layers with different purposes:
+
+| Layer | Purpose | Adapter-Consistent? | Use In |
+|-------|---------|---------------------|--------|
+| `api.*` | **Public client API** | ✅ Yes - identical across all adapters | UI components, frontend code |
+| `db.*` | **Internal database layer** | ❌ No - varies by adapter | Endpoint resolvers, seeding, tests |
+
+### ⚠️ Do NOT use `db.*` in UI Code
+
+The `db` layer has different APIs depending on the adapter:
+- **Mock**: `db.user.create()`, `db.user.getAll()` (ORM-like via @mswjs/data)
+- **PGlite**: `db.query('SELECT * FROM users')` (raw SQL)
+- **Supabase**: Not generated (uses Supabase client directly)
+
+If you use `db.*` in your UI code, you'll need to refactor when switching adapters.
+
+### ✅ Always use `api.*` in UI Code
+
+The `api` client is consistent across ALL adapters:
+
+```typescript
+// Works identically with Mock, PGlite, Supabase, Firebase, Fetch
+import { api } from './generated';
+// OR
+import { createClient } from './generated/mock/client';
+import { createClient } from './generated/pglite/client';
+import { createClient } from './generated/supabase/client';
+
+const api = createClient();
+
+// Same API everywhere
+await api.user.list();
+await api.user.get(id);
+await api.user.create({ name: 'John', email: 'john@example.com' });
+await api.user.update(id, { name: 'John Doe' });
+await api.user.delete(id);
+```
+
+### When to Use Each Layer
+
+| Use Case | Use This |
+|----------|----------|
+| React components | `api.*` or hooks (`useUsers()`) |
+| Vue/Svelte/Angular components | `api.*` |
+| Custom endpoint `mockResolver` | `db.*` (resolver receives `db`) |
+| Seed scripts | `db.*` or `seed()` utility |
+| Unit tests (direct data setup) | `db.*` |
+
+For detailed migration instructions, see [docs/migration-db-to-api.md](docs/migration-db-to-api.md).
+
+---
+
 ## Inline Resolver Limitations (AI Agents: Read This)
 
 When implementing custom endpoints with inline `mockResolver` functions:

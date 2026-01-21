@@ -119,6 +119,12 @@ await api.user.update(user.data.id, { name: 'John Doe' });
 await api.user.delete(user.data.id);
 ```
 
+> **Important: Always use `api.*` in UI code**
+>
+> The `api` client is consistent across all adapters (Mock, PGlite, Supabase, Firebase, Fetch).
+> The `db` layer is internal and has different APIs per adapter. Using `db.*` directly in UI code
+> will require refactoring when switching adapters. See [API Layers](#api-layers-db-vs-api) for details.
+
 Or with React hooks (when using `--framework react`):
 
 ```typescript
@@ -144,6 +150,29 @@ function UserList() {
   // ...
 }
 ```
+
+## API Layers: db vs api
+
+Schemock generates two layers:
+
+| Layer | Consistency | Use For |
+|-------|-------------|---------|
+| `api.*` | ✅ Same across all adapters | UI code, frontend components |
+| `db.*` | ❌ Varies by adapter | Endpoint resolvers, seeding, tests |
+
+**Always use `api.*` in your UI code.** This ensures zero refactoring when switching adapters.
+
+```typescript
+// ✅ CORRECT - Works with any adapter
+import { api } from './generated';
+await api.user.list();
+
+// ❌ AVOID in UI - Requires refactoring when switching adapters
+import { db } from './generated';
+db.user.getAll(); // Only works with Mock adapter
+```
+
+For a detailed migration guide, see [docs/migration-db-to-api.md](docs/migration-db-to-api.md).
 
 ## CLI Commands
 
