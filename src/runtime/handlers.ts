@@ -9,8 +9,10 @@
  */
 
 import { http, HttpResponse } from 'msw';
-import type { HttpHandler } from 'msw';
 import type { EntitySchema } from '../schema/types';
+
+// Use inferred type for MSW handler to avoid tsup DTS resolution issues
+type HttpHandler = ReturnType<typeof http.get>;
 import type { Adapter, AdapterContext } from '../adapters/types';
 
 /**

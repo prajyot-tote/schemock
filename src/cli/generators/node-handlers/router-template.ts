@@ -18,6 +18,7 @@ export function generateRouterFile(
   config: SchemockConfig
 ): string {
   const hasAuth = target.middleware?.auth !== undefined;
+  const hasNewMiddlewareConfig = config.middleware !== undefined;
   const apiPrefix = config.apiPrefix || '/api';
 
   const lines: string[] = [
@@ -32,8 +33,12 @@ export function generateRouterFile(
     lines.push(`import * as ${schema.pluralName}Handlers from './handlers/${schema.pluralName}';`);
   }
 
-  // Import auth middleware if configured
-  if (hasAuth) {
+  // Import middleware based on config format
+  if (hasNewMiddlewareConfig) {
+    // New config format - use middleware chain
+    lines.push("import { applyMiddleware } from './middleware/chain';");
+  } else if (hasAuth) {
+    // Legacy format - import auth middleware directly
     lines.push("import { authMiddleware } from './middleware/auth';");
   }
 
@@ -48,7 +53,11 @@ export function generateRouterFile(
   lines.push('  router.use(json());');
   lines.push('');
 
-  if (hasAuth) {
+  if (hasNewMiddlewareConfig) {
+    lines.push('  // Apply all configured middleware');
+    lines.push('  applyMiddleware(router);');
+    lines.push('');
+  } else if (hasAuth) {
     lines.push('  // Apply auth middleware to all routes');
     lines.push('  router.use(authMiddleware);');
     lines.push('');

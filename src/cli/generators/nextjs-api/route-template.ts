@@ -15,10 +15,13 @@ import type { AnalyzedSchema, GenerationTarget, SchemockConfig } from '../../typ
 export function generateRouteFile(
   schema: AnalyzedSchema,
   target: GenerationTarget,
-  _config: SchemockConfig
+  config: SchemockConfig
 ): string {
-  const hasAuth = target.middleware?.auth !== undefined;
-  const hasValidation = target.middleware?.validation === true;
+  const hasNewMiddlewareConfig = config.middleware !== undefined;
+  const hasAuth = hasNewMiddlewareConfig ? !!config.middleware?.auth : target.middleware?.auth !== undefined;
+  const hasValidation = hasNewMiddlewareConfig ? !!config.middleware?.validation : target.middleware?.validation === true;
+  const hasRateLimit = hasNewMiddlewareConfig && !!config.middleware?.rateLimit;
+  const hasCache = hasNewMiddlewareConfig && !!config.middleware?.cache;
   const backend = target.backend || 'supabase';
 
   const lines: string[] = [
@@ -27,12 +30,19 @@ export function generateRouteFile(
     "import { NextRequest, NextResponse } from 'next/server';",
   ];
 
-  // Import auth middleware if configured
-  if (hasAuth) {
+  // Import middleware based on config format
+  if (hasNewMiddlewareConfig) {
+    // New config format - use middleware chain
+    lines.push("import { runMiddlewareChain, type MiddlewareChainContext } from '../_lib/chain';");
+    if (hasCache) {
+      lines.push("import { setCacheEntry } from '../_lib/cache';");
+    }
+  } else if (hasAuth) {
+    // Legacy format - import auth middleware directly
     lines.push("import { authMiddleware, type AuthResult } from '../_lib/auth';");
   }
 
-  // Import validation if configured
+  // Import validation if configured (both formats)
   if (hasValidation) {
     lines.push(`import { validate${schema.pascalName} } from '../_lib/validate';`);
   }
@@ -57,7 +67,21 @@ export function generateRouteFile(
   lines.push(' */');
   lines.push('export async function GET(request: NextRequest) {');
 
-  if (hasAuth) {
+  if (hasNewMiddlewareConfig) {
+    // New middleware chain
+    lines.push('  // Run middleware chain');
+    lines.push(`  const mwResult = await runMiddlewareChain(request, '${schema.tableName}', 'select');`);
+    lines.push('  if (mwResult.error) {');
+    lines.push("    return mwResult.response ?? NextResponse.json({ error: 'Middleware error' }, { status: 500 });");
+    lines.push('  }');
+    lines.push('');
+    lines.push('  // Check for cached response');
+    lines.push('  if (mwResult.response) {');
+    lines.push('    return mwResult.response;');
+    lines.push('  }');
+    lines.push('');
+  } else if (hasAuth) {
+    // Legacy auth check
     lines.push('  // Auth check');
     lines.push('  const authResult = await authMiddleware(request);');
     lines.push('  if (authResult.error) {');
@@ -120,7 +144,16 @@ export function generateRouteFile(
   lines.push(' */');
   lines.push('export async function POST(request: NextRequest) {');
 
-  if (hasAuth) {
+  if (hasNewMiddlewareConfig) {
+    // New middleware chain
+    lines.push('  // Run middleware chain');
+    lines.push(`  const mwResult = await runMiddlewareChain(request, '${schema.tableName}', 'insert');`);
+    lines.push('  if (mwResult.error) {');
+    lines.push("    return mwResult.response ?? NextResponse.json({ error: 'Middleware error' }, { status: 500 });");
+    lines.push('  }');
+    lines.push('');
+  } else if (hasAuth) {
+    // Legacy auth check
     lines.push('  // Auth check');
     lines.push('  const authResult = await authMiddleware(request);');
     lines.push('  if (authResult.error) {');
@@ -195,10 +228,11 @@ export function generateRouteFile(
 export function generateDynamicRouteFile(
   schema: AnalyzedSchema,
   target: GenerationTarget,
-  _config: SchemockConfig
+  config: SchemockConfig
 ): string {
-  const hasAuth = target.middleware?.auth !== undefined;
-  const hasValidation = target.middleware?.validation === true;
+  const hasNewMiddlewareConfig = config.middleware !== undefined;
+  const hasAuth = hasNewMiddlewareConfig ? !!config.middleware?.auth : target.middleware?.auth !== undefined;
+  const hasValidation = hasNewMiddlewareConfig ? !!config.middleware?.validation : target.middleware?.validation === true;
   const backend = target.backend || 'supabase';
 
   const lines: string[] = [
@@ -207,8 +241,12 @@ export function generateDynamicRouteFile(
     "import { NextRequest, NextResponse } from 'next/server';",
   ];
 
-  // Import auth middleware if configured
-  if (hasAuth) {
+  // Import middleware based on config format
+  if (hasNewMiddlewareConfig) {
+    // New config format - use middleware chain
+    lines.push("import { runMiddlewareChain, type MiddlewareChainContext } from '../../_lib/chain';");
+  } else if (hasAuth) {
+    // Legacy format - import auth middleware directly
     lines.push("import { authMiddleware } from '../../_lib/auth';");
   }
 
@@ -243,7 +281,20 @@ export function generateDynamicRouteFile(
   lines.push(' */');
   lines.push('export async function GET(request: NextRequest, { params }: RouteParams) {');
 
-  if (hasAuth) {
+  if (hasNewMiddlewareConfig) {
+    // New middleware chain
+    lines.push('  // Run middleware chain');
+    lines.push(`  const mwResult = await runMiddlewareChain(request, '${schema.tableName}', 'select');`);
+    lines.push('  if (mwResult.error) {');
+    lines.push("    return mwResult.response ?? NextResponse.json({ error: 'Middleware error' }, { status: 500 });");
+    lines.push('  }');
+    lines.push('');
+    lines.push('  // Check for cached response');
+    lines.push('  if (mwResult.response) {');
+    lines.push('    return mwResult.response;');
+    lines.push('  }');
+    lines.push('');
+  } else if (hasAuth) {
     lines.push('  const authResult = await authMiddleware(request);');
     lines.push('  if (authResult.error) return authResult.response;');
     lines.push('');
@@ -303,7 +354,15 @@ export function generateDynamicRouteFile(
   lines.push(' */');
   lines.push('export async function PUT(request: NextRequest, { params }: RouteParams) {');
 
-  if (hasAuth) {
+  if (hasNewMiddlewareConfig) {
+    // New middleware chain
+    lines.push('  // Run middleware chain');
+    lines.push(`  const mwResult = await runMiddlewareChain(request, '${schema.tableName}', 'update');`);
+    lines.push('  if (mwResult.error) {');
+    lines.push("    return mwResult.response ?? NextResponse.json({ error: 'Middleware error' }, { status: 500 });");
+    lines.push('  }');
+    lines.push('');
+  } else if (hasAuth) {
     lines.push('  const authResult = await authMiddleware(request);');
     lines.push('  if (authResult.error) return authResult.response;');
     lines.push('');
@@ -387,7 +446,15 @@ export function generateDynamicRouteFile(
   lines.push(' */');
   lines.push('export async function DELETE(request: NextRequest, { params }: RouteParams) {');
 
-  if (hasAuth) {
+  if (hasNewMiddlewareConfig) {
+    // New middleware chain
+    lines.push('  // Run middleware chain');
+    lines.push(`  const mwResult = await runMiddlewareChain(request, '${schema.tableName}', 'delete');`);
+    lines.push('  if (mwResult.error) {');
+    lines.push("    return mwResult.response ?? NextResponse.json({ error: 'Middleware error' }, { status: 500 });");
+    lines.push('  }');
+    lines.push('');
+  } else if (hasAuth) {
     lines.push('  const authResult = await authMiddleware(request);');
     lines.push('  if (authResult.error) return authResult.response;');
     lines.push('');

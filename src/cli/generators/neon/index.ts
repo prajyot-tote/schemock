@@ -1,10 +1,10 @@
 /**
- * Node.js Handler Generator
+ * Neon Serverless Generator
  *
- * Generates Express-compatible HTTP handlers from Schemock schemas.
- * Works with Express, Fastify, Hono, or any Node.js HTTP framework.
+ * Generates handlers optimized for Neon Serverless PostgreSQL.
+ * Works with Vercel Edge, Cloudflare Workers, and other edge/serverless environments.
  *
- * @module cli/generators/node-handlers
+ * @module cli/generators/neon
  * @category CLI
  */
 
@@ -16,43 +16,57 @@ import type {
   SchemockConfig,
   GenerateOptions,
   AnalyzedMiddleware,
-  AuthMiddlewareConfig,
 } from '../../types';
 
 import { generateHandlerFile } from './handler-template';
 import { generateRouterFile } from './router-template';
+import { generateNeonLibFiles } from './lib-template';
 import {
-  generateNodeMiddleware,
-  generateNodeValidation,
-  generateRateLimitMiddleware,
-  generateCacheMiddleware,
-  generateLoggerMiddleware,
-  generateContextMiddleware,
-  generateRlsMiddleware,
-  generateCustomMiddleware,
-  generateAuthMiddlewareFromConfig,
+  generateNeonAuthMiddleware,
+  generateNeonRateLimitMiddleware,
+  generateNeonCacheMiddleware,
+  generateNeonLoggerMiddleware,
+  generateNeonContextMiddleware,
+  generateNeonRlsMiddleware,
+  generateNeonValidation,
+  generateNeonCustomMiddleware,
 } from './middleware-template';
 import {
-  generateMiddlewareChain,
+  generateNeonMiddlewareChain,
   normalizeAuthConfig,
   normalizeLoggerConfig,
   normalizeCacheConfig,
 } from './middleware-chain-template';
-import { generateNodeLibFiles } from './lib-template';
 import { generateTypes } from '../types';
 
 /**
- * Generate Node.js handlers for entities
+ * Generate Neon Serverless handlers for entities
  *
- * @param allSchemas - All schemas (for type generation, ensures relations work)
+ * Creates a project structure like:
+ * output/
+ *   types.ts
+ *   db.ts
+ *   router.ts
+ *   index.ts
+ *   handlers/
+ *     users.ts
+ *     posts.ts
+ *   middleware/
+ *     auth.ts
+ *     cache.ts
+ *     chain.ts
+ *     custom/
+ *       {middleware-name}.ts
+ *
+ * @param allSchemas - All schemas (for type generation)
  * @param targetSchemas - Filtered schemas (for handler generation)
  * @param outputDir - Output directory
  * @param target - Target configuration
  * @param config - Schemock config
  * @param options - Generation options
- * @param customMiddleware - Analyzed custom middleware definitions (optional)
+ * @param customMiddleware - Analyzed custom middleware definitions
  */
-export async function generateNodeHandlersTarget(
+export async function generateNeonTarget(
   allSchemas: AnalyzedSchema[],
   targetSchemas: AnalyzedSchema[],
   outputDir: string,
@@ -89,8 +103,8 @@ export async function generateNodeHandlersTarget(
   files.push('types.ts');
   console.log('   ✓ types.ts');
 
-  // Generate shared library files (excluding types which we just generated)
-  const libFiles = generateNodeLibFiles(target, config);
+  // Generate Neon-specific library files
+  const libFiles = generateNeonLibFiles(target, config);
   for (const [filename, content] of Object.entries(libFiles)) {
     if (filename === 'types.ts') continue; // Skip types, already generated
     await writeOutput(join(outputDir, filename), content, options.dryRun);
@@ -114,22 +128,25 @@ export async function generateNodeHandlersTarget(
     files.push(...generatedMiddleware);
 
     // Generate middleware chain file
-    const chainCode = generateMiddlewareChain(config, customMiddleware);
+    const chainCode = generateNeonMiddlewareChain(config, customMiddleware);
     await writeOutput(join(middlewareDir, 'chain.ts'), chainCode, options.dryRun);
     files.push('middleware/chain.ts');
     console.log('   ✓ middleware/chain.ts');
   } else {
     // Legacy middleware generation (target.middleware)
     if (target.middleware?.auth) {
-      const authMiddleware = generateNodeMiddleware(target);
-      await writeOutput(join(middlewareDir, 'auth.ts'), authMiddleware, options.dryRun);
-      files.push('middleware/auth.ts');
-      console.log('   ✓ middleware/auth.ts');
+      const authConfig = normalizeAuthConfig(target.middleware.auth);
+      if (authConfig) {
+        const authMiddleware = generateNeonAuthMiddleware(authConfig);
+        await writeOutput(join(middlewareDir, 'auth.ts'), authMiddleware, options.dryRun);
+        files.push('middleware/auth.ts');
+        console.log('   ✓ middleware/auth.ts');
+      }
     }
 
     // Generate validation middleware (only for target schemas)
     if (target.middleware?.validation) {
-      const validationMiddleware = generateNodeValidation(targetSchemas);
+      const validationMiddleware = generateNeonValidation(targetSchemas);
       await writeOutput(join(middlewareDir, 'validate.ts'), validationMiddleware, options.dryRun);
       files.push('middleware/validate.ts');
       console.log('   ✓ middleware/validate.ts');
@@ -179,7 +196,7 @@ async function generateMiddlewareFromConfig(
   if (mwConfig.auth) {
     const authConfig = normalizeAuthConfig(mwConfig.auth);
     if (authConfig) {
-      const authCode = generateAuthMiddlewareFromConfig(authConfig);
+      const authCode = generateNeonAuthMiddleware(authConfig);
       await writeOutput(join(middlewareDir, 'auth.ts'), authCode, dryRun);
       files.push('middleware/auth.ts');
       console.log('   ✓ middleware/auth.ts');
@@ -188,7 +205,7 @@ async function generateMiddlewareFromConfig(
 
   // Rate limit middleware
   if (mwConfig.rateLimit) {
-    const rateLimitCode = generateRateLimitMiddleware(mwConfig.rateLimit);
+    const rateLimitCode = generateNeonRateLimitMiddleware(mwConfig.rateLimit);
     await writeOutput(join(middlewareDir, 'rate-limit.ts'), rateLimitCode, dryRun);
     files.push('middleware/rate-limit.ts');
     console.log('   ✓ middleware/rate-limit.ts');
@@ -198,7 +215,7 @@ async function generateMiddlewareFromConfig(
   if (mwConfig.cache) {
     const cacheConfig = normalizeCacheConfig(mwConfig.cache);
     if (cacheConfig) {
-      const cacheCode = generateCacheMiddleware(cacheConfig);
+      const cacheCode = generateNeonCacheMiddleware(cacheConfig);
       await writeOutput(join(middlewareDir, 'cache.ts'), cacheCode, dryRun);
       files.push('middleware/cache.ts');
       console.log('   ✓ middleware/cache.ts');
@@ -209,7 +226,7 @@ async function generateMiddlewareFromConfig(
   if (mwConfig.logger) {
     const loggerConfig = normalizeLoggerConfig(mwConfig.logger);
     if (loggerConfig) {
-      const loggerCode = generateLoggerMiddleware(loggerConfig);
+      const loggerCode = generateNeonLoggerMiddleware(loggerConfig);
       await writeOutput(join(middlewareDir, 'logger.ts'), loggerCode, dryRun);
       files.push('middleware/logger.ts');
       console.log('   ✓ middleware/logger.ts');
@@ -218,7 +235,7 @@ async function generateMiddlewareFromConfig(
 
   // Context middleware
   if (mwConfig.context) {
-    const contextCode = generateContextMiddleware();
+    const contextCode = generateNeonContextMiddleware();
     await writeOutput(join(middlewareDir, 'context.ts'), contextCode, dryRun);
     files.push('middleware/context.ts');
     console.log('   ✓ middleware/context.ts');
@@ -226,7 +243,7 @@ async function generateMiddlewareFromConfig(
 
   // RLS middleware
   if (mwConfig.rls) {
-    const rlsCode = generateRlsMiddleware(schemas);
+    const rlsCode = generateNeonRlsMiddleware(schemas);
     await writeOutput(join(middlewareDir, 'rls.ts'), rlsCode, dryRun);
     files.push('middleware/rls.ts');
     console.log('   ✓ middleware/rls.ts');
@@ -234,7 +251,7 @@ async function generateMiddlewareFromConfig(
 
   // Validation middleware
   if (mwConfig.validation) {
-    const validationCode = generateNodeValidation(schemas);
+    const validationCode = generateNeonValidation(schemas);
     await writeOutput(join(middlewareDir, 'validate.ts'), validationCode, dryRun);
     files.push('middleware/validate.ts');
     console.log('   ✓ middleware/validate.ts');
@@ -242,7 +259,7 @@ async function generateMiddlewareFromConfig(
 
   // Custom middleware
   for (const mw of customMiddleware) {
-    const customCode = generateCustomMiddleware(mw);
+    const customCode = generateNeonCustomMiddleware(mw);
     const customDir = join(middlewareDir, 'custom');
     await writeOutput(join(customDir, `${mw.name}.ts`), customCode, dryRun);
     files.push(`middleware/custom/${mw.name}.ts`);
@@ -266,6 +283,7 @@ function generateIndexFile(
     '',
     "export * from './types';",
     "export { router, createRouter } from './router';",
+    "export { sql, neon, getPool } from './db';",
   ];
 
   // Export handlers

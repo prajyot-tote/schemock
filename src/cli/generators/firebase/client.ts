@@ -39,20 +39,175 @@ export function generateFirebaseClient(schemas: AnalyzedSchema[], config: Fireba
   code.line("import { db as firestore } from '../lib/firebase';");
   code.line();
 
-  code.block('export const api = {', () => {
-    for (const schema of schemas) {
-      if (schema.isJunctionTable) continue;
-      generateFirebaseEntityApi(code, schema, config, schemas);
-    }
-  }, '};');
+  // Generate interceptor infrastructure
+  generateInterceptorInfrastructure(code);
+  code.line();
+
+  // Generate createClient factory
+  generateCreateClientFactory(code, schemas, config);
+  code.line();
+
+  // Generate default api export
+  code.comment('Default API client (no interceptors)');
+  code.line('export const api = createClient();');
 
   return code.toString();
 }
 
 /**
- * Generate Firebase API methods for a single entity
+ * Generate interceptor infrastructure (same pattern as mock/supabase/pglite)
  */
-function generateFirebaseEntityApi(
+function generateInterceptorInfrastructure(code: CodeBuilder): void {
+  code.comment('=============================================================================');
+  code.comment('Interceptor Infrastructure');
+  code.comment('=============================================================================');
+  code.line();
+
+  // ApiError class
+  code.comment('Custom error class with HTTP status codes');
+  code.block('export class ApiError extends Error {', () => {
+    code.line('readonly status: number;');
+    code.line('readonly code: string;');
+    code.line('readonly operation: string;');
+    code.line('readonly details?: unknown;');
+    code.line();
+    code.block('constructor(message: string, status: number, code: string, operation: string, details?: unknown) {', () => {
+      code.line('super(message);');
+      code.line("this.name = 'ApiError';");
+      code.line('this.status = status;');
+      code.line('this.code = code;');
+      code.line('this.operation = operation;');
+      code.line('this.details = details;');
+    });
+  });
+  code.line();
+
+  // RequestContext type
+  code.comment('Request context for interceptors');
+  code.block('export interface RequestContext {', () => {
+    code.line('headers: Record<string, string>;');
+    code.line('operation: string;');
+  });
+  code.line();
+
+  // ClientConfig type
+  code.comment('Client configuration with interceptors');
+  code.block('export interface ClientConfig {', () => {
+    code.comment('Called before each request - can modify headers');
+    code.line('onRequest?: (ctx: RequestContext) => RequestContext | Promise<RequestContext>;');
+    code.comment('Called when an error occurs');
+    code.line('onError?: (error: ApiError) => void | Promise<void>;');
+  });
+  code.line();
+
+  // Firebase error mapping
+  code.comment('Map Firebase errors to HTTP status codes');
+  code.block('function mapFirebaseError(error: unknown, operation: string): ApiError {', () => {
+    code.line('const err = error as { code?: string; message?: string };');
+    code.line("const code = err.code || 'UNKNOWN';");
+    code.line("const message = err.message || 'Unknown error';");
+    code.line();
+    code.comment('Map Firebase error codes to HTTP status');
+    code.line('let status = 500;');
+    code.block('switch (code) {', () => {
+      code.line("case 'not-found':");
+      code.line("case 'permission-denied':");
+      code.line('  status = code === "not-found" ? 404 : 403;');
+      code.line('  break;');
+      code.line("case 'unauthenticated':");
+      code.line('  status = 401;');
+      code.line('  break;');
+      code.line("case 'already-exists':");
+      code.line('  status = 409;');
+      code.line('  break;');
+      code.line("case 'invalid-argument':");
+      code.line("case 'failed-precondition':");
+      code.line('  status = 400;');
+      code.line('  break;');
+      code.line("case 'resource-exhausted':");
+      code.line('  status = 429;');
+      code.line('  break;');
+    });
+    code.line();
+    code.line('return new ApiError(message, status, code, operation, error);');
+  });
+}
+
+/**
+ * Generate createClient factory function
+ */
+function generateCreateClientFactory(
+  code: CodeBuilder,
+  schemas: AnalyzedSchema[],
+  config: FirebaseAdapterConfig
+): void {
+  code.comment('=============================================================================');
+  code.comment('Client Factory');
+  code.comment('=============================================================================');
+  code.line();
+
+  // ApiClient type
+  code.comment('API Client interface');
+  code.line('export interface ApiClient {');
+  for (const schema of schemas) {
+    if (schema.isJunctionTable) continue;
+    const { name, pascalName, relations } = schema;
+    const includeType = relations.length > 0 ? `Types.${pascalName}Include` : 'never';
+    code.line(`  ${name}: {`);
+    code.line(`    list: (options?: Types.QueryOptions<Types.${pascalName}Filter, ${includeType}>) => Promise<Types.ListResponse<Types.${pascalName}>>;`);
+    code.line(`    get: (id: string, options?: { include?: ${includeType}[] }) => Promise<Types.ItemResponse<Types.${pascalName}>>;`);
+    code.line(`    create: (input: Types.${pascalName}Create) => Promise<Types.ItemResponse<Types.${pascalName}>>;`);
+    code.line(`    update: (id: string, input: Types.${pascalName}Update) => Promise<Types.ItemResponse<Types.${pascalName}>>;`);
+    code.line('    delete: (id: string) => Promise<void>;');
+    code.line('  };');
+  }
+  code.line('}');
+  code.line();
+
+  // createClient function
+  code.comment('Create a configured API client');
+  code.block('export function createClient(config: ClientConfig = {}): ApiClient {', () => {
+    code.comment('Execute request with interceptors');
+    code.block('async function executeRequest<T>(operation: string, fn: () => Promise<T>): Promise<T> {', () => {
+      code.comment('Build request context');
+      code.line('let ctx: RequestContext = { headers: {}, operation };');
+      code.line();
+      code.comment('Run onRequest interceptor');
+      code.line('if (config.onRequest) {');
+      code.indent();
+      code.line('ctx = await config.onRequest(ctx);');
+      code.dedent();
+      code.line('}');
+      code.line();
+      code.block('try {', () => {
+        code.line('return await fn();');
+      }, '} catch (error) {');
+      code.indent();
+      code.line('const apiError = error instanceof ApiError ? error : mapFirebaseError(error, operation);');
+      code.line('if (config.onError) {');
+      code.indent();
+      code.line('await config.onError(apiError);');
+      code.dedent();
+      code.line('}');
+      code.line('throw apiError;');
+      code.dedent();
+      code.line('}');
+    });
+    code.line();
+
+    code.line('return {');
+    for (const schema of schemas) {
+      if (schema.isJunctionTable) continue;
+      generateFirebaseEntityApiWithInterceptors(code, schema, config, schemas);
+    }
+    code.line('};');
+  });
+}
+
+/**
+ * Generate Firebase API methods for a single entity with interceptor support
+ */
+function generateFirebaseEntityApiWithInterceptors(
   code: CodeBuilder,
   schema: AnalyzedSchema,
   config: FirebaseAdapterConfig,
@@ -66,146 +221,184 @@ function generateFirebaseEntityApi(
   // Create schema map for looking up target collections
   const schemaMap = new Map(allSchemas.map((s) => [s.name, s]));
 
-  // Helper to get collection name for a target schema
-  const getTargetCollection = (targetName: string): string => {
-    const targetSchema = schemaMap.get(targetName);
-    return config.collectionMap?.[targetName] ?? targetSchema?.pluralName ?? targetName + 's';
-  };
-
   code.block(`${name}: {`, () => {
-    // LIST
+    // LIST with interceptor
     code.block(
       `list: async (options?: Types.QueryOptions<Types.${pascalName}Filter, ${includeType}>): Promise<Types.ListResponse<Types.${pascalName}>> => {`,
       () => {
-        code.line(`let q = query(collection(firestore, '${collectionName}'));`);
-        code.line();
-
-        // Filters (Firebase supports many operators)
-        code.block('if (options?.where) {', () => {
-          code.block('for (const [key, value] of Object.entries(options.where)) {', () => {
-            code.block('if (typeof value === "object" && value !== null) {', () => {
-              code.line('const f = value as Record<string, unknown>;');
-              code.line("if ('equals' in f) q = query(q, where(key, '==', f.equals));");
-              code.line("if ('not' in f) q = query(q, where(key, '!=', f.not));");
-              code.line("if ('gt' in f) q = query(q, where(key, '>', f.gt));");
-              code.line("if ('gte' in f) q = query(q, where(key, '>=', f.gte));");
-              code.line("if ('lt' in f) q = query(q, where(key, '<', f.lt));");
-              code.line("if ('lte' in f) q = query(q, where(key, '<=', f.lte));");
-              code.line("if ('in' in f) q = query(q, where(key, 'in', f.in));");
-              code.line("if ('notIn' in f) q = query(q, where(key, 'not-in', f.notIn));");
-              code.comment('Note: contains/startsWith/endsWith require compound indexes in Firebase');
-              code.line("if ('contains' in f) q = query(q, where(key, '>=', f.contains), where(key, '<=', f.contains + '\\uf8ff'));");
-              code.line("if ('startsWith' in f) q = query(q, where(key, '>=', f.startsWith), where(key, '<=', f.startsWith + '\\uf8ff'));");
-            }, '} else {');
-            code.indent();
-            code.line("q = query(q, where(key, '==', value));");
-            code.dedent();
-            code.line('}');
-          });
-        });
-        code.line();
-
-        // Ordering
-        code.block('if (options?.orderBy) {', () => {
-          code.block('for (const [field, dir] of Object.entries(options.orderBy)) {', () => {
-            code.line("q = query(q, orderBy(field, dir as 'asc' | 'desc'));");
-          });
-        });
-        code.line();
-
-        // Pagination (Firebase doesn't support offset natively, so we fetch extra and slice)
-        code.line('const queryLimit = options?.limit ?? 20;');
-        code.line('const queryOffset = options?.offset ?? 0;');
-        code.comment('Fetch limit + offset to enable client-side offset');
-        code.line('q = query(q, fbLimit(queryLimit + queryOffset));');
-        code.line();
-
-        code.line('const snapshot = await getDocs(q);');
-        code.line(`let allItems = snapshot.docs.map(d => ({ id: d.id, ...d.data() })) as Types.${pascalName}[];`);
-        code.line('const total = allItems.length;');
-        code.comment('Apply client-side offset');
-        code.line('let items = allItems.slice(queryOffset, queryOffset + queryLimit);');
-        code.line();
-
-        // Load relations
-        if (hasRelations) {
-          code.block('if (options?.include?.length) {', () => {
-            code.block('items = await Promise.all(items.map(async (item) => {', () => {
-              code.line('const result = { ...item } as Record<string, unknown>;');
-
-              for (const rel of relations) {
-                code.block(`if (options.include!.includes('${rel.name}')) {`, () => {
-                  generateFirebaseRelationLoad(code, schema, rel, config);
-                });
-              }
-
-              code.line(`return result as Types.${pascalName};`);
-            }, '}));');
-          });
-        }
-        code.line();
-
-        code.line('return {');
-        code.line('  data: items,');
-        code.line('  meta: { total, limit: queryLimit, offset: queryOffset, hasMore: queryOffset + queryLimit < total },');
-        code.line('};');
+        code.block(`return executeRequest('${name}.list', async () => {`, () => {
+          generateListBody(code, schema, collectionName, config, allSchemas);
+        }, '});');
       },
       '},'
     );
     code.line();
 
-    // GET
+    // GET with interceptor
     code.block(`get: async (id: string, options?: { include?: ${includeType}[] }): Promise<Types.ItemResponse<Types.${pascalName}>> => {`, () => {
-      code.line(`const docRef = doc(firestore, '${collectionName}', id);`);
-      code.line('const snapshot = await getDoc(docRef);');
-      code.line(`if (!snapshot.exists()) throw new Error('${pascalName} not found');`);
-      code.line(`let item = { id: snapshot.id, ...snapshot.data() } as Types.${pascalName};`);
-
-      if (hasRelations) {
-        code.line();
-        code.block('if (options?.include?.length) {', () => {
-          code.line('const result = { ...item } as Record<string, unknown>;');
-
-          for (const rel of relations) {
-            code.block(`if (options.include.includes('${rel.name}')) {`, () => {
-              generateFirebaseRelationLoad(code, schema, rel, config);
-            });
-          }
-
-          code.line(`item = result as Types.${pascalName};`);
-        });
-      }
-
-      code.line();
-      code.line('return { data: item };');
+      code.block(`return executeRequest('${name}.get', async () => {`, () => {
+        generateGetBody(code, schema, collectionName, config, allSchemas);
+      }, '});');
     }, '},');
     code.line();
 
-    // CREATE (with nested relation support)
-    generateFirebaseCreateMethod(code, schema, collectionName, config, allSchemas);
+    // CREATE with interceptor
+    code.block(`create: async (input: Types.${pascalName}Create): Promise<Types.ItemResponse<Types.${pascalName}>> => {`, () => {
+      code.block(`return executeRequest('${name}.create', async () => {`, () => {
+        generateCreateBody(code, schema, collectionName, config, allSchemas);
+      }, '});');
+    }, '},');
     code.line();
 
-    // UPDATE
+    // UPDATE with interceptor
     code.block(`update: async (id: string, input: Types.${pascalName}Update): Promise<Types.ItemResponse<Types.${pascalName}>> => {`, () => {
-      code.line(`const docRef = doc(firestore, '${collectionName}', id);`);
-      code.line('await updateDoc(docRef, { ...input, updatedAt: new Date() });');
-      code.line('const snapshot = await getDoc(docRef);');
-      code.line(`return { data: { id: snapshot.id, ...snapshot.data() } as Types.${pascalName} };`);
+      code.block(`return executeRequest('${name}.update', async () => {`, () => {
+        code.line(`const docRef = doc(firestore, '${collectionName}', id);`);
+        code.line('await updateDoc(docRef, { ...input, updatedAt: new Date() });');
+        code.line('const snapshot = await getDoc(docRef);');
+        code.line(`return { data: { id: snapshot.id, ...snapshot.data() } as Types.${pascalName} };`);
+      }, '});');
     }, '},');
     code.line();
 
-    // DELETE
+    // DELETE with interceptor
     code.block('delete: async (id: string): Promise<void> => {', () => {
-      code.line(`await deleteDoc(doc(firestore, '${collectionName}', id));`);
+      code.block(`return executeRequest('${name}.delete', async () => {`, () => {
+        code.line(`await deleteDoc(doc(firestore, '${collectionName}', id));`);
+      }, '});');
     }, '},');
   }, '},');
   code.line();
 }
 
 /**
- * Generate Firebase create method with nested relation support
+ * Generate list method body
  */
-function generateFirebaseCreateMethod(
+function generateListBody(
+  code: CodeBuilder,
+  schema: AnalyzedSchema,
+  collectionName: string,
+  config: FirebaseAdapterConfig,
+  allSchemas: AnalyzedSchema[]
+): void {
+  const { pascalName, relations } = schema;
+  const hasRelations = relations.length > 0;
+
+  code.line(`let q = query(collection(firestore, '${collectionName}'));`);
+  code.line();
+
+  // Filters
+  code.block('if (options?.where) {', () => {
+    code.block('for (const [key, value] of Object.entries(options.where)) {', () => {
+      code.block('if (typeof value === "object" && value !== null) {', () => {
+        code.line('const f = value as Record<string, unknown>;');
+        code.line("if ('equals' in f) q = query(q, where(key, '==', f.equals));");
+        code.line("if ('not' in f) q = query(q, where(key, '!=', f.not));");
+        code.line("if ('gt' in f) q = query(q, where(key, '>', f.gt));");
+        code.line("if ('gte' in f) q = query(q, where(key, '>=', f.gte));");
+        code.line("if ('lt' in f) q = query(q, where(key, '<', f.lt));");
+        code.line("if ('lte' in f) q = query(q, where(key, '<=', f.lte));");
+        code.line("if ('in' in f) q = query(q, where(key, 'in', f.in));");
+        code.line("if ('notIn' in f) q = query(q, where(key, 'not-in', f.notIn));");
+        code.comment('Note: contains/startsWith/endsWith require compound indexes in Firebase');
+        code.line("if ('contains' in f) q = query(q, where(key, '>=', f.contains), where(key, '<=', f.contains + '\\uf8ff'));");
+        code.line("if ('startsWith' in f) q = query(q, where(key, '>=', f.startsWith), where(key, '<=', f.startsWith + '\\uf8ff'));");
+      }, '} else {');
+      code.indent();
+      code.line("q = query(q, where(key, '==', value));");
+      code.dedent();
+      code.line('}');
+    });
+  });
+  code.line();
+
+  // Ordering
+  code.block('if (options?.orderBy) {', () => {
+    code.block('for (const [field, dir] of Object.entries(options.orderBy)) {', () => {
+      code.line("q = query(q, orderBy(field, dir as 'asc' | 'desc'));");
+    });
+  });
+  code.line();
+
+  // Pagination
+  code.line('const queryLimit = options?.limit ?? 20;');
+  code.line('const queryOffset = options?.offset ?? 0;');
+  code.comment('Fetch limit + offset to enable client-side offset');
+  code.line('q = query(q, fbLimit(queryLimit + queryOffset));');
+  code.line();
+
+  code.line('const snapshot = await getDocs(q);');
+  code.line(`let allItems = snapshot.docs.map(d => ({ id: d.id, ...d.data() })) as Types.${pascalName}[];`);
+  code.line('const total = allItems.length;');
+  code.comment('Apply client-side offset');
+  code.line('let items = allItems.slice(queryOffset, queryOffset + queryLimit);');
+  code.line();
+
+  // Load relations
+  if (hasRelations) {
+    code.block('if (options?.include?.length) {', () => {
+      code.block('items = await Promise.all(items.map(async (item) => {', () => {
+        code.line('const result = { ...item } as Record<string, unknown>;');
+
+        for (const rel of relations) {
+          code.block(`if (options.include!.includes('${rel.name}')) {`, () => {
+            generateFirebaseRelationLoad(code, schema, rel, config, allSchemas);
+          });
+        }
+
+        code.line(`return result as Types.${pascalName};`);
+      }, '}));');
+    });
+  }
+  code.line();
+
+  code.line('return {');
+  code.line('  data: items,');
+  code.line('  meta: { total, limit: queryLimit, offset: queryOffset, hasMore: queryOffset + queryLimit < total },');
+  code.line('};');
+}
+
+/**
+ * Generate get method body
+ */
+function generateGetBody(
+  code: CodeBuilder,
+  schema: AnalyzedSchema,
+  collectionName: string,
+  config: FirebaseAdapterConfig,
+  allSchemas: AnalyzedSchema[]
+): void {
+  const { pascalName, relations } = schema;
+  const hasRelations = relations.length > 0;
+
+  code.line(`const docRef = doc(firestore, '${collectionName}', id);`);
+  code.line('const snapshot = await getDoc(docRef);');
+  code.line(`if (!snapshot.exists()) throw new ApiError('${pascalName} not found', 404, 'not-found', '${schema.name}.get');`);
+  code.line(`let item = { id: snapshot.id, ...snapshot.data() } as Types.${pascalName};`);
+
+  if (hasRelations) {
+    code.line();
+    code.block('if (options?.include?.length) {', () => {
+      code.line('const result = { ...item } as Record<string, unknown>;');
+
+      for (const rel of relations) {
+        code.block(`if (options.include.includes('${rel.name}')) {`, () => {
+          generateFirebaseRelationLoad(code, schema, rel, config, allSchemas);
+        });
+      }
+
+      code.line(`item = result as Types.${pascalName};`);
+    });
+  }
+
+  code.line();
+  code.line('return { data: item };');
+}
+
+/**
+ * Generate create method body
+ */
+function generateCreateBody(
   code: CodeBuilder,
   schema: AnalyzedSchema,
   collectionName: string,
@@ -224,38 +417,36 @@ function generateFirebaseCreateMethod(
     return config.collectionMap?.[targetName] ?? targetSchema?.pluralName ?? targetName + 's';
   };
 
-  code.block(`create: async (input: Types.${pascalName}Create): Promise<Types.ItemResponse<Types.${pascalName}>> => {`, () => {
-    if (nestedRels.length > 0) {
-      const relNames = nestedRels.map((r) => r.name).join(', ');
-      code.line(`const { ${relNames}, ...data } = input;`);
-      code.line('const withTimestamps = { ...data, createdAt: new Date(), updatedAt: new Date() };');
-      code.line(`const docRef = await addDoc(collection(firestore, '${collectionName}'), withTimestamps);`);
-      code.line(`const item = { id: docRef.id, ...withTimestamps } as Types.${pascalName};`);
-      code.line();
+  if (nestedRels.length > 0) {
+    const relNames = nestedRels.map((r) => r.name).join(', ');
+    code.line(`const { ${relNames}, ...data } = input;`);
+    code.line('const withTimestamps = { ...data, createdAt: new Date(), updatedAt: new Date() };');
+    code.line(`const docRef = await addDoc(collection(firestore, '${collectionName}'), withTimestamps);`);
+    code.line(`const item = { id: docRef.id, ...withTimestamps } as Types.${pascalName};`);
+    code.line();
 
-      for (const rel of nestedRels) {
-        const targetCollection = getTargetCollection(rel.target);
-        code.block(`if (${rel.name}) {`, () => {
-          if (rel.type === 'hasMany') {
-            code.block(`for (const nested of ${rel.name}) {`, () => {
-              code.line(`const nestedData = { ...nested, ${rel.foreignKey}: item.id, createdAt: new Date(), updatedAt: new Date() };`);
-              code.line(`await addDoc(collection(firestore, '${targetCollection}'), nestedData);`);
-            });
-          } else {
-            code.line(`const nestedData = { ...${rel.name}, ${rel.foreignKey}: item.id, createdAt: new Date(), updatedAt: new Date() };`);
+    for (const rel of nestedRels) {
+      const targetCollection = getTargetCollection(rel.target);
+      code.block(`if (${rel.name}) {`, () => {
+        if (rel.type === 'hasMany') {
+          code.block(`for (const nested of ${rel.name}) {`, () => {
+            code.line(`const nestedData = { ...nested, ${rel.foreignKey}: item.id, createdAt: new Date(), updatedAt: new Date() };`);
             code.line(`await addDoc(collection(firestore, '${targetCollection}'), nestedData);`);
-          }
-        });
-      }
-
-      code.line();
-      code.line('return { data: item };');
-    } else {
-      code.line('const data = { ...input, createdAt: new Date(), updatedAt: new Date() };');
-      code.line(`const docRef = await addDoc(collection(firestore, '${collectionName}'), data);`);
-      code.line(`return { data: { id: docRef.id, ...data } as Types.${pascalName} };`);
+          });
+        } else {
+          code.line(`const nestedData = { ...${rel.name}, ${rel.foreignKey}: item.id, createdAt: new Date(), updatedAt: new Date() };`);
+          code.line(`await addDoc(collection(firestore, '${targetCollection}'), nestedData);`);
+        }
+      });
     }
-  }, '},');
+
+    code.line();
+    code.line('return { data: item };');
+  } else {
+    code.line('const data = { ...input, createdAt: new Date(), updatedAt: new Date() };');
+    code.line(`const docRef = await addDoc(collection(firestore, '${collectionName}'), data);`);
+    code.line(`return { data: { id: docRef.id, ...data } as Types.${pascalName} };`);
+  }
 }
 
 /**

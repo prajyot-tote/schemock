@@ -53,6 +53,12 @@ import { generateProvider } from './provider';
 import { generateNextjsApiTarget } from './nextjs-api';
 import { generateValidation } from './nextjs-api/lib-template';
 import { generateNodeHandlersTarget } from './node-handlers';
+import { generateSupabaseEdgeTarget } from './supabase-edge';
+import { generateNeonTarget } from './neon';
+
+// Frontend middleware generator
+import { generateFrontendMiddlewareChain } from './frontend-middleware/middleware-chain';
+import { generateFrontendInterceptor } from './frontend-middleware/interceptor';
 
 /**
  * Result of generating a target
@@ -146,7 +152,7 @@ export function filterSchemasForTarget(
  * Check if a target type is a server-side target
  */
 export function isServerTarget(type: TargetType): boolean {
-  return ['nextjs-api', 'nextjs-edge', 'express', 'hono', 'node-handlers'].includes(type);
+  return ['nextjs-api', 'nextjs-edge', 'express', 'hono', 'node-handlers', 'supabase-edge', 'neon'].includes(type);
 }
 
 /**
@@ -233,8 +239,17 @@ async function generateClientTarget(
     files.push('hooks.ts');
   }
 
+  // Check if middleware is configured (for frontend adapters that support it)
+  const hasMiddleware = config.middleware !== undefined &&
+    ['mock', 'supabase', 'pglite', 'firebase'].includes(target.type);
+
   // Generate index
-  const indexCode = generateClientIndex(target.type, hasEndpoints, framework);
+  const indexCode = generateClientIndex({
+    targetType: target.type,
+    hasEndpoints,
+    framework,
+    hasMiddleware,
+  });
   await writeOutput(join(outputDir, 'index.ts'), indexCode, options.dryRun);
   files.push('index.ts');
 
@@ -254,6 +269,7 @@ async function generateMockTarget(
   const files: string[] = [];
   const mockConfig = config.adapters?.mock || {};
   const hasEndpoints = endpoints.length > 0;
+  const hasMiddlewareConfig = config.middleware !== undefined;
 
   const dbCode = generateMockDb(schemas, mockConfig);
   await writeOutput(join(outputDir, 'db.ts'), dbCode, options.dryRun);
@@ -293,6 +309,17 @@ async function generateMockTarget(
   await writeOutput(join(outputDir, 'all-handlers.ts'), allHandlersCode, options.dryRun);
   files.push('all-handlers.ts');
 
+  // Generate frontend middleware if config.middleware is defined
+  if (hasMiddlewareConfig) {
+    const middlewareChainCode = generateFrontendMiddlewareChain(schemas, config);
+    await writeOutput(join(outputDir, 'middleware-chain.ts'), middlewareChainCode, options.dryRun);
+    files.push('middleware-chain.ts');
+
+    const interceptorCode = generateFrontendInterceptor(schemas, config);
+    await writeOutput(join(outputDir, 'interceptor.ts'), interceptorCode, options.dryRun);
+    files.push('interceptor.ts');
+  }
+
   return files;
 }
 
@@ -309,6 +336,7 @@ async function generateSupabaseTarget(
   const files: string[] = [];
   const supabaseConfig = config.adapters?.supabase || {};
   const hasEndpoints = endpoints.length > 0;
+  const hasMiddlewareConfig = config.middleware !== undefined;
 
   const clientCode = generateSupabaseClient(schemas, supabaseConfig);
   await writeOutput(join(outputDir, 'client.ts'), clientCode, options.dryRun);
@@ -319,6 +347,17 @@ async function generateSupabaseTarget(
     const endpointsCode = generateSupabaseEndpoints(endpoints, supabaseConfig);
     await writeOutput(join(outputDir, 'endpoints.ts'), endpointsCode, options.dryRun);
     files.push('endpoints.ts');
+  }
+
+  // Generate frontend middleware if config.middleware is defined
+  if (hasMiddlewareConfig) {
+    const middlewareChainCode = generateFrontendMiddlewareChain(schemas, config);
+    await writeOutput(join(outputDir, 'middleware-chain.ts'), middlewareChainCode, options.dryRun);
+    files.push('middleware-chain.ts');
+
+    const interceptorCode = generateFrontendInterceptor(schemas, config);
+    await writeOutput(join(outputDir, 'interceptor.ts'), interceptorCode, options.dryRun);
+    files.push('interceptor.ts');
   }
 
   // Generate migrations if enabled
@@ -357,10 +396,26 @@ async function generateFirebaseTarget(
   config: SchemockConfig,
   options: GenerateOptions
 ): Promise<string[]> {
+  const files: string[] = [];
   const firebaseConfig = config.adapters?.firebase || {};
+  const hasMiddlewareConfig = config.middleware !== undefined;
+
   const clientCode = generateFirebaseClient(schemas, firebaseConfig);
   await writeOutput(join(outputDir, 'client.ts'), clientCode, options.dryRun);
-  return ['client.ts'];
+  files.push('client.ts');
+
+  // Generate frontend middleware if config.middleware is defined
+  if (hasMiddlewareConfig) {
+    const middlewareChainCode = generateFrontendMiddlewareChain(schemas, config);
+    await writeOutput(join(outputDir, 'middleware-chain.ts'), middlewareChainCode, options.dryRun);
+    files.push('middleware-chain.ts');
+
+    const interceptorCode = generateFrontendInterceptor(schemas, config);
+    await writeOutput(join(outputDir, 'interceptor.ts'), interceptorCode, options.dryRun);
+    files.push('interceptor.ts');
+  }
+
+  return files;
 }
 
 /**
@@ -391,6 +446,7 @@ async function generatePGliteTarget(
   const files: string[] = [];
   const pgliteConfig = config.adapters?.pglite || {};
   const hasEndpoints = endpoints.length > 0;
+  const hasMiddlewareConfig = config.middleware !== undefined;
 
   // Core files
   const dbCode = generatePGliteDb(schemas, pgliteConfig);
@@ -434,6 +490,17 @@ async function generatePGliteTarget(
   const allHandlersCode = generatePGliteAllHandlersExport(hasEndpoints);
   await writeOutput(join(outputDir, 'all-handlers.ts'), allHandlersCode, options.dryRun);
   files.push('all-handlers.ts');
+
+  // Generate frontend middleware if config.middleware is defined
+  if (hasMiddlewareConfig) {
+    const middlewareChainCode = generateFrontendMiddlewareChain(schemas, config);
+    await writeOutput(join(outputDir, 'middleware-chain.ts'), middlewareChainCode, options.dryRun);
+    files.push('middleware-chain.ts');
+
+    const interceptorCode = generateFrontendInterceptor(schemas, config);
+    await writeOutput(join(outputDir, 'interceptor.ts'), interceptorCode, options.dryRun);
+    files.push('interceptor.ts');
+  }
 
   return files;
 }
@@ -509,15 +576,47 @@ async function generateServerTarget(
       // Generate handlers - pass both allSchemas (for types) and targetSchemas (for handlers)
       files.push(...(await generateNodeHandlersTarget(allSchemas, targetSchemas, outputDir, target, config, options)));
       break;
+
+    case 'supabase-edge':
+      if (isFiltered) {
+        console.log(`   📂 Supabase Edge Functions (${targetCount}/${allCount} entities)`);
+      } else {
+        console.log(`   📂 Supabase Edge Functions (${targetCount} entities)`);
+      }
+      // Generate Edge Functions - pass both allSchemas (for types) and targetSchemas (for functions)
+      files.push(...(await generateSupabaseEdgeTarget(allSchemas, targetSchemas, outputDir, target, config, options)));
+      break;
+
+    case 'neon':
+      if (isFiltered) {
+        console.log(`   📂 Neon Serverless handlers (${targetCount}/${allCount} entities)`);
+      } else {
+        console.log(`   📂 Neon Serverless handlers (${targetCount} entities)`);
+      }
+      // Generate Neon handlers - pass both allSchemas (for types) and targetSchemas (for handlers)
+      files.push(...(await generateNeonTarget(allSchemas, targetSchemas, outputDir, target, config, options)));
+      break;
   }
 
   return files;
 }
 
 /**
+ * Options for generating client index
+ */
+interface ClientIndexOptions {
+  targetType: TargetType;
+  hasEndpoints?: boolean;
+  framework?: string;
+  hasMiddleware?: boolean;
+}
+
+/**
  * Generate barrel export index file for client targets
  */
-function generateClientIndex(targetType: TargetType, hasEndpoints: boolean = false, framework: string = 'none'): string {
+function generateClientIndex(options: ClientIndexOptions): string {
+  const { targetType, hasEndpoints = false, framework = 'none', hasMiddleware = false } = options;
+
   const lines = [
     '// GENERATED BY SCHEMOCK - DO NOT EDIT',
     '',
@@ -529,6 +628,16 @@ function generateClientIndex(targetType: TargetType, hasEndpoints: boolean = fal
   if (framework === 'react') {
     lines.push("export * from './hooks';");
     lines.push("export * from './provider';");
+  }
+
+  // Frontend middleware exports (when config.middleware is defined)
+  if (hasMiddleware) {
+    lines.push('');
+    lines.push('// Middleware exports');
+    lines.push("export { createMiddlewareChain, setDefaultHeaders, getDefaultHeaders, clearDefaultHeaders, middlewareOrder, isMiddlewareEnabled } from './middleware-chain';");
+    lines.push("export { createInterceptor, setAuthToken, clearAuthToken, isAuthenticated, defaultInterceptor } from './interceptor';");
+    lines.push("export type { FrontendMiddlewareChainConfig, FrontendRequestContext } from './middleware-chain';");
+    lines.push("export type { InterceptorConfig, ApiError, RequestContext, ClientConfig } from './interceptor';");
   }
 
   if (targetType === 'mock') {
@@ -561,6 +670,10 @@ function generateClientIndex(targetType: TargetType, hasEndpoints: boolean = fal
     if (hasEndpoints) {
       lines.push("export { endpoints, createEndpoints, type EndpointsClient } from './endpoints';");
     }
+  }
+
+  if (targetType === 'firebase') {
+    lines.push("export { ApiError, type ClientConfig, type RequestContext, type ApiClient } from './client';");
   }
 
   return lines.join('\n');

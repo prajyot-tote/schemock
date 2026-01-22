@@ -72,7 +72,7 @@ describe('Fetch Client Generator Integration', () => {
     const code = generateFetchClient(analyzed, config);
 
     assertCodeContains(code, [
-      'function buildQuery(',
+      'function buildQuery<T extends object>',
       'URLSearchParams',
     ]);
   });

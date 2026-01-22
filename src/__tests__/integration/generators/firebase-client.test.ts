@@ -56,7 +56,7 @@ describe('Firebase Client Generator Integration', () => {
     const code = generateFirebaseClient(analyzed, config);
 
     assertCodeContains(code, [
-      'export const api = {',
+      'export const api = createClient();',
       'user: {',
     ]);
   });
@@ -123,7 +123,7 @@ describe('Firebase Client Generator Integration', () => {
 
     // Should still generate valid structure
     assertCodeContains(code, [
-      'export const api = {',
+      'export const api = createClient();',
     ]);
   });
 });

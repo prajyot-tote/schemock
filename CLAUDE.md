@@ -609,6 +609,68 @@ npx schemock generate:sql
 npx schemock generate --dry-run
 ```
 
+### Configuration (v1.0)
+
+The new configuration format uses separate `frontend`, `backend`, and `middleware` sections:
+
+```typescript
+// schemock.config.ts
+import { defineConfig } from 'schemock/cli';
+
+export default defineConfig({
+  schemas: './src/schemas/**/*.ts',
+  output: './src/generated',
+  apiPrefix: '/api',
+
+  // Frontend configuration
+  frontend: {
+    framework: 'react',     // react | vue | svelte | none
+    adapter: 'supabase',    // mock | supabase | firebase | fetch | pglite
+  },
+
+  // Backend configuration
+  backend: {
+    framework: 'nextjs',    // node | nextjs | supabase-edge | neon
+    output: './src/generated/api',
+    database: {
+      type: 'supabase',
+      connectionEnvVar: 'SUPABASE_URL',
+    },
+  },
+
+  // Unified middleware - applies to both frontend and backend
+  middleware: {
+    auth: { provider: 'supabase-auth', required: true },
+    validation: true,
+    logger: { level: 'info' },
+    context: true,
+    rls: true,
+    // Custom middleware files
+    custom: ['./src/middleware/tenant.ts'],
+  },
+});
+```
+
+**Custom Middleware** (using `defineMiddleware`):
+
+```typescript
+// src/middleware/tenant.ts
+import { defineMiddleware, field } from 'schemock/schema';
+
+export const tenantMiddleware = defineMiddleware('tenant', {
+  config: {
+    headerName: field.string().default('X-Tenant-ID'),
+  },
+  handler: async ({ ctx, config, next }) => {
+    ctx.context.tenantId = ctx.headers[config.headerName];
+    return next();
+  },
+  order: 'early',
+});
+```
+
+**Legacy format** (`targets` array) is deprecated but still supported.
+
 ---
 
 ## Reporting Issues

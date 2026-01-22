@@ -882,6 +882,135 @@ export function isEndpointSchema(value: unknown): value is EndpointSchema {
 }
 
 // ============================================================================
+// Custom Middleware Definition Types
+// ============================================================================
+
+/**
+ * Context passed to middleware handlers.
+ * This is the framework-agnostic context that gets adapted per backend.
+ */
+export interface MiddlewareHandlerContext {
+  /** Request headers */
+  headers: Record<string, string | undefined>;
+  /** URL path */
+  path: string;
+  /** HTTP method */
+  method: string;
+  /** Query parameters */
+  query: Record<string, string | string[] | undefined>;
+  /** Path parameters */
+  params: Record<string, string>;
+  /** Request body (parsed JSON) */
+  body?: unknown;
+  /** User context (populated by auth middleware) */
+  context: Record<string, unknown>;
+  /** Metadata for passing data between middleware */
+  metadata: Record<string, unknown>;
+}
+
+/**
+ * Result returned by middleware handlers
+ */
+export interface MiddlewareHandlerResult {
+  /** Modified context to pass to next middleware */
+  ctx?: Partial<MiddlewareHandlerContext>;
+  /** Response to return (short-circuits the chain) */
+  response?: {
+    status: number;
+    body?: unknown;
+    headers?: Record<string, string>;
+  };
+}
+
+/**
+ * Middleware handler function type.
+ * Similar to endpoint resolvers, this is framework-agnostic and gets adapted per backend.
+ *
+ * @example
+ * ```typescript
+ * const handler: MiddlewareHandler = async ({ ctx, config, next }) => {
+ *   const tenantId = ctx.headers['x-tenant-id'];
+ *   if (!tenantId) {
+ *     return { response: { status: 400, body: { error: 'Tenant ID required' } } };
+ *   }
+ *   ctx.context.tenantId = tenantId;
+ *   return next();
+ * };
+ * ```
+ */
+export type MiddlewareHandler<TConfig = Record<string, unknown>> = (params: {
+  /** Request context */
+  ctx: MiddlewareHandlerContext;
+  /** Middleware configuration from schemock.config.ts */
+  config: TConfig;
+  /** Call the next middleware in the chain */
+  next: () => Promise<MiddlewareHandlerResult | void>;
+}) => Promise<MiddlewareHandlerResult | void>;
+
+/**
+ * Configuration for custom middleware definition.
+ *
+ * @example
+ * ```typescript
+ * const TenantMiddleware = defineMiddleware('tenant', {
+ *   config: {
+ *     headerName: field.string().default('X-Tenant-ID'),
+ *     required: field.boolean().default(true),
+ *   },
+ *   handler: async ({ ctx, config, next }) => {
+ *     const tenantId = ctx.headers[config.headerName.toLowerCase()];
+ *     if (!tenantId && config.required) {
+ *       return { response: { status: 400, body: { error: 'Tenant ID required' } } };
+ *     }
+ *     ctx.context.tenantId = tenantId;
+ *     return next();
+ *   },
+ * });
+ * ```
+ */
+export interface MiddlewareConfig<TConfig = Record<string, unknown>> {
+  /** Configuration schema for this middleware (optional) */
+  config?: Record<string, FieldBuilder<unknown> | FieldDefinition>;
+  /** The middleware handler function */
+  handler: MiddlewareHandler<TConfig>;
+  /** Description for documentation */
+  description?: string;
+  /** Order hint - where in the chain this should run */
+  order?: 'early' | 'normal' | 'late';
+}
+
+/**
+ * Complete middleware schema definition.
+ * This is the output of the defineMiddleware function.
+ */
+export interface MiddlewareSchema<TConfig = Record<string, unknown>> {
+  /** Unique middleware name */
+  name: string;
+  /** Configuration schema (normalized to FieldDefinition) */
+  config: Record<string, FieldDefinition>;
+  /** The middleware handler function */
+  handler: MiddlewareHandler<TConfig>;
+  /** Description for documentation */
+  description?: string;
+  /** Order hint */
+  order: 'early' | 'normal' | 'late';
+  /** Internal marker for type identification */
+  readonly _middleware: true;
+}
+
+/**
+ * Type guard to check if a value is a MiddlewareSchema
+ */
+export function isMiddlewareSchema(value: unknown): value is MiddlewareSchema {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    '_middleware' in value &&
+    (value as MiddlewareSchema)._middleware === true
+  );
+}
+
+// ============================================================================
 // Type Inference Utilities
 // ============================================================================
 

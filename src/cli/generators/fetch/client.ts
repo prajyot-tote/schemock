@@ -39,7 +39,7 @@ export function generateFetchClient(schemas: AnalyzedSchema[], config: FetchAdap
   code.line();
 
   // Build query string helper
-  code.block('function buildQuery(options?: Record<string, unknown>): string {', () => {
+  code.block('function buildQuery<T extends object>(options?: T): string {', () => {
     code.line("if (!options) return '';");
     code.line('const params = new URLSearchParams();');
     code.block('for (const [key, value] of Object.entries(options)) {', () => {

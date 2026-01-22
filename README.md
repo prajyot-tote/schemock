@@ -982,6 +982,131 @@ export default defineConfig({
 });
 ```
 
+### Advanced Configuration (v1.0)
+
+For more control over code generation, use the new unified configuration format with separate frontend/backend/middleware sections:
+
+```typescript
+import { defineConfig } from 'schemock/cli';
+
+export default defineConfig({
+  schemas: './src/schemas/**/*.ts',
+  output: './src/generated',
+  apiPrefix: '/api',
+
+  // Frontend configuration
+  frontend: {
+    framework: 'react',     // react | vue | svelte | none
+    adapter: 'mock',        // mock | supabase | firebase | fetch | pglite
+    output: './src/generated/client',  // Optional: override output
+  },
+
+  // Backend configuration
+  backend: {
+    framework: 'node',      // node | nextjs | supabase-edge | neon
+    output: './src/generated/server',
+    database: {
+      type: 'supabase',     // postgres | supabase | neon
+      connectionEnvVar: 'DATABASE_URL',
+    },
+  },
+
+  // Unified middleware - applies to both frontend and backend
+  middleware: {
+    // Middleware execution order (default: auth -> logger -> context -> rls -> cache)
+    chain: ['auth', 'logger', 'context', 'rls', 'cache'],
+
+    // Authentication
+    auth: {
+      provider: 'jwt',      // jwt | supabase-auth | nextauth | clerk | custom
+      required: true,
+      secretEnvVar: 'JWT_SECRET',
+      skip: ['/api/health', '/api/public/*'],  // Routes to skip auth
+    },
+
+    // Rate limiting
+    rateLimit: {
+      max: 100,
+      windowMs: 60000,      // 1 minute
+      keyGenerator: 'ip',   // ip | user | custom
+    },
+
+    // Response caching
+    cache: {
+      ttl: 300000,          // 5 minutes
+      operations: ['findOne', 'findMany'],
+      storage: 'memory',    // memory | redis
+    },
+
+    // Request/response logging
+    logger: {
+      level: 'info',        // debug | info | warn | error
+      includeBody: false,
+      redactFields: ['password', 'token'],
+    },
+
+    // Enable context extraction from JWT/headers
+    context: true,
+
+    // Enable row-level security middleware
+    rls: true,
+
+    // Enable validation middleware from schema constraints
+    validation: true,
+
+    // Custom middleware files (using defineMiddleware)
+    custom: [
+      './src/middleware/tenant.ts',
+      './src/middleware/audit.ts',
+    ],
+  },
+});
+```
+
+### Custom Middleware Definition
+
+Define custom middleware using the `defineMiddleware` API:
+
+```typescript
+// src/middleware/tenant.ts
+import { defineMiddleware, field } from 'schemock/schema';
+
+export const tenantMiddleware = defineMiddleware('tenant', {
+  // Configuration schema (optional)
+  config: {
+    headerName: field.string().default('X-Tenant-ID'),
+    required: field.boolean().default(true),
+  },
+
+  // Handler function - works across all backends
+  handler: async ({ ctx, config, next }) => {
+    const tenantId = ctx.headers[config.headerName];
+    if (config.required && !tenantId) {
+      throw new Error('Tenant ID required');
+    }
+    ctx.context.tenantId = tenantId;
+    return next();
+  },
+
+  // Execution order hint
+  order: 'early',  // early | normal | late
+});
+```
+
+### Legacy Configuration (targets)
+
+The `targets` array format is still supported but deprecated:
+
+```typescript
+// Deprecated - use frontend/backend/middleware instead
+export default {
+  targets: [
+    { name: 'client', type: 'supabase', output: './src/generated/supabase' },
+    { name: 'api', type: 'nextjs-api', output: './src/app/api', backend: 'supabase' },
+  ],
+};
+```
+
 ## File Organization
 
 Schemock supports organizing schemas across multiple files and directories. The CLI discovers all schemas via glob patterns and merges them before generation - **no code changes needed**.

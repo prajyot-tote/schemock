@@ -122,6 +122,7 @@ export interface AuthProviderConfig {
 
 /**
  * Middleware configuration for a target
+ * @deprecated Use MiddlewareConfig instead for new config format
  */
 export interface TargetMiddlewareConfig {
   /** Middleware chain order */
@@ -139,6 +140,139 @@ export interface TargetMiddlewareConfig {
   };
 }
 
+// ============================================================================
+// New Config Format (v1.0)
+// ============================================================================
+
+/**
+ * Frontend framework types
+ */
+export type FrontendFramework = 'react' | 'vue' | 'svelte' | 'none';
+
+/**
+ * Frontend adapter types (client-side data layer)
+ */
+export type FrontendAdapter = 'mock' | 'supabase' | 'firebase' | 'fetch' | 'pglite';
+
+/**
+ * Backend framework types
+ */
+export type BackendFramework = 'node' | 'nextjs' | 'supabase-edge' | 'neon';
+
+/**
+ * Frontend configuration
+ */
+export interface FrontendConfig {
+  /** Frontend framework for hooks/components generation */
+  framework: FrontendFramework;
+  /** Client-side adapter type */
+  adapter: FrontendAdapter;
+  /** Output directory (defaults to main output) */
+  output?: string;
+}
+
+/**
+ * Backend configuration
+ */
+export interface BackendConfig {
+  /** Backend framework for API generation */
+  framework: BackendFramework;
+  /** Output directory for backend code */
+  output: string;
+  /** Database connection (for backends that need it) */
+  database?: {
+    /** Database type */
+    type: 'postgres' | 'supabase' | 'neon';
+    /** Environment variable for connection string */
+    connectionEnvVar?: string;
+  };
+}
+
+/**
+ * Auth middleware configuration
+ */
+export interface AuthMiddlewareConfig {
+  /** Auth provider type */
+  provider: 'supabase-auth' | 'jwt' | 'nextauth' | 'clerk' | 'custom';
+  /** Whether auth is required for all routes (default: true) */
+  required?: boolean;
+  /** Secret key env variable (for JWT) */
+  secretEnvVar?: string;
+  /** Custom auth handler file path (for custom provider) */
+  customHandler?: string;
+  /** Routes/operations to skip auth */
+  skip?: string[];
+}
+
+/**
+ * Rate limit middleware configuration
+ */
+export interface RateLimitMiddlewareConfig {
+  /** Maximum requests per window */
+  max: number;
+  /** Window duration in milliseconds */
+  windowMs: number;
+  /** Key generator (default: IP-based) */
+  keyGenerator?: 'ip' | 'user' | 'custom';
+  /** Custom key generator file path */
+  customKeyGenerator?: string;
+  /** Key to use for rate limiting (e.g., 'ip', 'userId') - alias for keyGenerator */
+  keyBy?: string;
+}
+
+/**
+ * Cache middleware configuration
+ */
+export interface CacheMiddlewareConfig {
+  /** Time-to-live in milliseconds */
+  ttl: number;
+  /** Operations to cache (default: ['findOne', 'findMany']) */
+  operations?: string[];
+  /** Cache storage type */
+  storage?: 'memory' | 'redis';
+  /** Redis connection env var (if storage is redis) */
+  redisEnvVar?: string;
+}
+
+/**
+ * Logger middleware configuration
+ */
+export interface LoggerMiddlewareConfig {
+  /** Log level */
+  level?: 'debug' | 'info' | 'warn' | 'error';
+  /** Include request body in logs */
+  includeBody?: boolean;
+  /** Include response in logs */
+  includeResponse?: boolean;
+  /** Fields to redact from logs */
+  redactFields?: string[];
+}
+
+/**
+ * Unified middleware configuration (v1.0)
+ * Middleware defined here is generated for both frontend and backend
+ */
+export interface MiddlewareConfig {
+  /** Middleware execution order (default: auth -> logger -> context -> rls -> cache) */
+  chain?: string[];
+  /** Auth middleware configuration */
+  auth?: AuthMiddlewareConfig | boolean;
+  /** Rate limiting configuration */
+  rateLimit?: RateLimitMiddlewareConfig;
+  /** Cache middleware configuration */
+  cache?: CacheMiddlewareConfig | boolean;
+  /** Logger middleware configuration */
+  logger?: LoggerMiddlewareConfig | boolean;
+  /** Enable validation middleware (from schema constraints) */
+  validation?: boolean;
+  /** Enable context extraction middleware (JWT claims, headers) */
+  context?: boolean;
+  /** Enable RLS middleware */
+  rls?: boolean;
+  /** Paths to custom middleware files (using defineMiddleware) */
+  custom?: string[];
+}
+
 /**
  * Generation target types
  */
@@ -153,7 +287,9 @@ export type TargetType =
   | 'nextjs-edge'
   | 'express'
   | 'hono'
-  | 'node-handlers';
+  | 'node-handlers'
+  | 'supabase-edge'
+  | 'neon';
 
 /**
  * Configuration for a single generation target
@@ -229,8 +365,31 @@ export interface SchemockConfig {
    * Multi-target generation configuration.
    * When specified, generates multiple outputs from the same schema.
    * Each target can have its own output directory, entity selection, and middleware config.
+   * @deprecated Use frontend/backend configuration instead
    */
   targets?: GenerationTarget[];
+
+  // ============================================================================
+  // New Config Format (v1.0)
+  // ============================================================================
+
+  /**
+   * Frontend configuration (v1.0)
+   * Defines the client-side framework and adapter
+   */
+  frontend?: FrontendConfig;
+
+  /**
+   * Backend configuration (v1.0)
+   * Defines the server-side framework for API generation
+   */
+  backend?: BackendConfig;
+
+  /**
+   * Unified middleware configuration (v1.0)
+   * Middleware defined here is generated for both frontend and backend
+   */
+  middleware?: MiddlewareConfig;
 }
 
 // ============================================================================
@@ -449,6 +608,8 @@ export interface AnalyzedSchema {
 
   // Row-Level Security
   rls: AnalyzedRLS;
+  /** RLS config (alias for rls) */
+  rlsConfig?: AnalyzedRLS;
 
   // Database indexes
   indexes: AnalyzedIndex[];
@@ -558,6 +719,62 @@ export interface AnalyzedEndpoint {
   resolverDependencies?: ResolverDependency[];
   /** Local functions used by inline resolver */
   localFunctions?: LocalFunction[];
+  /** Description */
+  description?: string;
+}
+
+// ============================================================================
+// Analyzed Middleware Types
+// ============================================================================
+
+/**
+ * Analyzed config field for middleware
+ */
+export interface AnalyzedMiddlewareConfigField {
+  /** Field name */
+  name: string;
+  /** Original type */
+  type: string;
+  /** TypeScript type */
+  tsType: string;
+  /** Has default value */
+  hasDefault: boolean;
+  /** Default value */
+  default?: unknown;
+  /** Default value (alias for default) */
+  defaultValue?: unknown;
+  /** Is nullable */
+  nullable: boolean;
+  /** Enum values if enum type */
+  enumValues?: string[];
+}
+
+/**
+ * Fully analyzed middleware with all computed properties
+ */
+export interface AnalyzedMiddleware {
+  /** Unique middleware name */
+  name: string;
+  /** PascalCase name for types (e.g., 'tenant' -> 'Tenant') */
+  pascalName: string;
+  /** Analyzed configuration fields */
+  configFields: AnalyzedMiddlewareConfigField[];
+  /** Serialized handler function source */
+  handlerSource: string;
+  /** Serialized handler function source (alias for handlerSource) */
+  handlerCode?: string;
+  /** Name of the handler function (if it's a named function) */
+  handlerName?: string;
+  /** Import path for the handler (if external) */
+  handlerImportPath?: string;
+  /** Source file path where this middleware is defined */
+  sourceFile?: string;
+  /** Dependencies detected in inline handler (functions used but not defined locally) */
+  handlerDependencies?: ResolverDependency[];
+  /** Local functions used by inline handler */
+  localFunctions?: LocalFunction[];
+  /** Order hint for middleware chain */
+  order: 'early' | 'normal' | 'late';
   /** Description */
   description?: string;
 }

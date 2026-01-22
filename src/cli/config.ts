@@ -101,7 +101,7 @@ const AuthProviderConfigSchema = z.object({
 }).strict();
 
 /**
- * Zod schema for TargetMiddlewareConfig validation
+ * Zod schema for TargetMiddlewareConfig validation (legacy)
  */
 const TargetMiddlewareConfigSchema = z.object({
   chain: z.array(z.string()).optional(),
@@ -111,6 +111,83 @@ const TargetMiddlewareConfigSchema = z.object({
     max: z.number().positive(),
     windowMs: z.number().positive(),
   }).optional(),
+}).strict();
+
+/**
+ * Zod schema for FrontendConfig validation (v1.0)
+ */
+const FrontendConfigSchema = z.object({
+  framework: z.enum(['react', 'vue', 'svelte', 'none']),
+  adapter: z.enum(['mock', 'supabase', 'firebase', 'fetch', 'pglite']),
+  output: z.string().optional(),
+}).strict();
+
+/**
+ * Zod schema for BackendConfig validation (v1.0)
+ */
+const BackendConfigSchema = z.object({
+  framework: z.enum(['node', 'nextjs', 'supabase-edge', 'neon']),
+  output: z.string(),
+  database: z.object({
+    type: z.enum(['postgres', 'supabase', 'neon']),
+    connectionEnvVar: z.string().optional(),
+  }).optional(),
+}).strict();
+
+/**
+ * Zod schema for AuthMiddlewareConfig validation (v1.0)
+ */
+const AuthMiddlewareConfigSchema = z.object({
+  provider: z.enum(['supabase-auth', 'jwt', 'nextauth', 'clerk', 'custom']),
+  required: z.boolean().optional(),
+  secretEnvVar: z.string().optional(),
+  customHandler: z.string().optional(),
+  skip: z.array(z.string()).optional(),
+}).strict();
+
+/**
+ * Zod schema for RateLimitMiddlewareConfig validation (v1.0)
+ */
+const RateLimitMiddlewareConfigSchema = z.object({
+  max: z.number().positive(),
+  windowMs: z.number().positive(),
+  keyGenerator: z.enum(['ip', 'user', 'custom']).optional(),
+  customKeyGenerator: z.string().optional(),
+}).strict();
+
+/**
+ * Zod schema for CacheMiddlewareConfig validation (v1.0)
+ */
+const CacheMiddlewareConfigSchema = z.object({
+  ttl: z.number().positive(),
+  operations: z.array(z.string()).optional(),
+  storage: z.enum(['memory', 'redis']).optional(),
+  redisEnvVar: z.string().optional(),
+}).strict();
+
+/**
+ * Zod schema for LoggerMiddlewareConfig validation (v1.0)
+ */
+const LoggerMiddlewareConfigSchema = z.object({
+  level: z.enum(['debug', 'info', 'warn', 'error']).optional(),
+  includeBody: z.boolean().optional(),
+  includeResponse: z.boolean().optional(),
+  redactFields: z.array(z.string()).optional(),
+}).strict();
+
+/**
+ * Zod schema for unified MiddlewareConfig validation (v1.0)
+ */
+const MiddlewareConfigSchema = z.object({
+  chain: z.array(z.string()).optional(),
+  auth: z.union([AuthMiddlewareConfigSchema, z.boolean()]).optional(),
+  rateLimit: RateLimitMiddlewareConfigSchema.optional(),
+  cache: z.union([CacheMiddlewareConfigSchema, z.boolean()]).optional(),
+  logger: z.union([LoggerMiddlewareConfigSchema, z.boolean()]).optional(),
+  validation: z.boolean().optional(),
+  context: z.boolean().optional(),
+  rls: z.boolean().optional(),
+  custom: z.array(z.string()).optional(),
 }).strict();
 
 /**
@@ -130,6 +207,8 @@ const GenerationTargetSchema = z.object({
     'express',
     'hono',
     'node-handlers',
+    'supabase-edge',
+    'neon',
   ]),
   output: z.string().min(1, 'target output path is required'),
   entities: z.array(z.string()).optional(),
@@ -140,6 +219,7 @@ const GenerationTargetSchema = z.object({
   module: z.string().optional(),
   group: z.string().optional(),
   backend: z.enum(['supabase', 'firebase', 'pglite', 'fetch']).optional(),
+  framework: z.enum(['react', 'none']).optional(),
   middleware: TargetMiddlewareConfigSchema.optional(),
   hooks: z.string().optional(),
   options: z.record(z.string(), z.unknown()).optional(),
@@ -166,6 +246,10 @@ const SchemockConfigSchema = z.object({
     pglite: PGliteAdapterConfigSchema.optional(),
   }).optional(),
   targets: z.array(GenerationTargetSchema).optional(),
+  // New v1.0 configuration format
+  frontend: FrontendConfigSchema.optional(),
+  backend: BackendConfigSchema.optional(),
+  middleware: MiddlewareConfigSchema.optional(),
 }).strict();
 
 /**
