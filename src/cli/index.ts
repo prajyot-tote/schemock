@@ -33,7 +33,7 @@ export { generateHooks } from './generators/hooks';
 export { generateMockDb } from './generators/mock/db';
 export { generateMockHandlers } from './generators/mock/handlers';
 export { generateMockClient } from './generators/mock/client';
-export { generateSeed } from './generators/mock/seed';
+export { generateUnifiedSeed, generateUnifiedSeed as generateSeed } from './generators/shared';
 export { generateSupabaseClient } from './generators/supabase/client';
 export { generateFirebaseClient } from './generators/firebase/client';
 export { generateFetchClient } from './generators/fetch/client';

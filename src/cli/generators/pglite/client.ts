@@ -262,13 +262,81 @@ function generateApiType(code: CodeBuilder, schemas: AnalyzedSchema[]): void {
 }
 
 /**
- * Generate the createClient factory function
+ * Generate the createClient factory function (both internal and public versions)
  */
 function generateCreateClientFactory(
   code: CodeBuilder,
   schemas: AnalyzedSchema[],
   hasRLS: boolean
 ): void {
+  // Generate internal config type with bypass option
+  code.comment('Internal config with RLS bypass option (not exported)');
+  code.block('interface _InternalClientConfig extends ClientConfig {', () => {
+    code.comment('@internal Bypass RLS checks - for seed/admin operations only');
+    code.line('_bypassRLS?: boolean;');
+  }, '}');
+  code.line();
+
+  // Generate internal factory (used by seed.ts)
+  code.comment('Internal factory with RLS bypass capability - used by seed.ts');
+  code.block('export function _createInternalClient(config?: _InternalClientConfig): ApiClient {', () => {
+    code.line('const interceptors = config ?? {};');
+    code.line('const bypassRLS = config?._bypassRLS ?? false;');
+    code.line();
+
+    code.comment('Internal helper to run request through interceptors');
+    code.block('async function executeRequest<T>(', () => {
+      code.line('operation: string,');
+      code.line('fn: (ctx: RLSContext | null, bypass: boolean) => T | Promise<T>');
+    }, '): Promise<T> {');
+    code.indent();
+
+    code.comment('Build request context');
+    code.line('let requestCtx: RequestContext = { headers: {}, operation };');
+    code.line();
+
+    code.comment('Run onRequest interceptor (user adds auth headers here)');
+    code.block('if (interceptors.onRequest) {', () => {
+      code.line('requestCtx = await interceptors.onRequest(requestCtx);');
+    });
+    code.line();
+
+    code.comment('Extract RLS context from headers');
+    code.line('const rlsCtx = extractContextFromHeaders(requestCtx.headers);');
+    code.line();
+
+    code.block('try {', () => {
+      code.comment('Execute within RLS context transaction');
+      code.line('return await withContext(rlsCtx ?? {}, () => fn(rlsCtx, bypassRLS));');
+    }, '} catch (err) {');
+    code.indent();
+    code.comment('Wrap error if not already ApiError');
+    code.line('const error = err instanceof ApiError ? err : wrapPGliteError(err, operation);');
+    code.line();
+    code.comment('Run onError interceptor');
+    code.block('if (interceptors.onError) {', () => {
+      code.line('await interceptors.onError(error);');
+    });
+    code.line();
+    code.line('throw error;');
+    code.dedent();
+    code.line('}');
+
+    code.dedent();
+    code.line('}');
+    code.line();
+
+    code.comment('Build API client with all entity methods');
+    code.block('return {', () => {
+      for (const schema of schemas) {
+        if (schema.isJunctionTable) continue;
+        generateEntityApiFactory(code, schema, schemas, hasRLS);
+      }
+    }, '};');
+  });
+  code.line();
+
+  // Generate public factory (no bypass capability)
   code.multiDocComment([
     'Create a configured API client with interceptors.',
     '',
@@ -310,58 +378,7 @@ function generateCreateClientFactory(
     '```',
   ]);
   code.block('export function createClient(config?: ClientConfig): ApiClient {', () => {
-    code.line('const interceptors = config ?? {};');
-    code.line();
-
-    code.comment('Internal helper to run request through interceptors');
-    code.block('async function executeRequest<T>(', () => {
-      code.line('operation: string,');
-      code.line('fn: (ctx: RLSContext | null) => T | Promise<T>');
-    }, '): Promise<T> {');
-    code.indent();
-
-    code.comment('Build request context');
-    code.line('let requestCtx: RequestContext = { headers: {}, operation };');
-    code.line();
-
-    code.comment('Run onRequest interceptor (user adds auth headers here)');
-    code.block('if (interceptors.onRequest) {', () => {
-      code.line('requestCtx = await interceptors.onRequest(requestCtx);');
-    });
-    code.line();
-
-    code.comment('Extract RLS context from headers');
-    code.line('const rlsCtx = extractContextFromHeaders(requestCtx.headers);');
-    code.line();
-
-    code.block('try {', () => {
-      code.comment('Execute within RLS context transaction');
-      code.line('return await withContext(rlsCtx ?? {}, () => fn(rlsCtx));');
-    }, '} catch (err) {');
-    code.indent();
-    code.comment('Wrap error if not already ApiError');
-    code.line('const error = err instanceof ApiError ? err : wrapPGliteError(err, operation);');
-    code.line();
-    code.comment('Run onError interceptor');
-    code.block('if (interceptors.onError) {', () => {
-      code.line('await interceptors.onError(error);');
-    });
-    code.line();
-    code.line('throw error;');
-    code.dedent();
-    code.line('}');
-
-    code.dedent();
-    code.line('}');
-    code.line();
-
-    code.comment('Build API client with all entity methods');
-    code.block('return {', () => {
-      for (const schema of schemas) {
-        if (schema.isJunctionTable) continue;
-        generateEntityApiFactory(code, schema, schemas, hasRLS);
-      }
-    }, '};');
+    code.line('return _createInternalClient(config);');
   });
 }
 
@@ -561,7 +578,7 @@ function generateEntityApiFactory(
       `list: (options?: Types.QueryOptions<Types.${pascalName}Filter, ${includeType}>) =>`
     );
     code.indent();
-    code.line(`executeRequest('${name}.list', async (ctx) => {`);
+    code.line(`executeRequest('${name}.list', async (ctx, bypass) => {`);
     code.indent();
     code.line('await initDb();');
     code.line('const params: unknown[] = [];');
@@ -604,10 +621,12 @@ function generateEntityApiFactory(
     }
     code.line();
 
-    // Apply RLS filter for select (client-side)
+    // Apply RLS filter for select (client-side, unless bypass is enabled)
     if (hasRLS && rls.enabled) {
-      code.comment('Apply RLS filter');
-      code.line(`items = items.filter(item => rls${pascalName}Select(item as unknown as Record<string, unknown>, ctx));`);
+      code.comment('Apply RLS filter (skip if bypass enabled)');
+      code.block('if (!bypass) {', () => {
+        code.line(`items = items.filter(item => rls${pascalName}Select(item as unknown as Record<string, unknown>, ctx));`);
+      });
       code.line();
     }
 
@@ -636,7 +655,7 @@ function generateEntityApiFactory(
     // GET
     code.line(`get: (id: string, options?: { include?: ${includeType}[] }) =>`);
     code.indent();
-    code.line(`executeRequest('${name}.get', async (ctx) => {`);
+    code.line(`executeRequest('${name}.get', async (ctx, bypass) => {`);
     code.indent();
     code.line('await initDb();');
     code.line();
@@ -655,10 +674,10 @@ function generateEntityApiFactory(
     }
     code.line();
 
-    // Apply RLS check for select
+    // Apply RLS check for select (unless bypass is enabled)
     if (hasRLS && rls.enabled) {
-      code.comment('Apply RLS check');
-      code.block(`if (!rls${pascalName}Select(item as unknown as Record<string, unknown>, ctx)) {`, () => {
+      code.comment('Apply RLS check (skip if bypass enabled)');
+      code.block(`if (!bypass && !rls${pascalName}Select(item as unknown as Record<string, unknown>, ctx)) {`, () => {
         code.line(`throw createRLSError('select', '${pascalName}');`);
       });
       code.line();
@@ -691,20 +710,20 @@ function generateEntityApiFactory(
     // UPDATE
     code.line(`update: (id: string, input: Types.${pascalName}Update) =>`);
     code.indent();
-    code.line(`executeRequest('${name}.update', async (ctx) => {`);
+    code.line(`executeRequest('${name}.update', async (ctx, bypass) => {`);
     code.indent();
     code.line('await initDb();');
     code.line();
 
-    // Check RLS on existing item first
+    // Check RLS on existing item first (unless bypass is enabled)
     if (hasRLS && rls.enabled) {
-      code.comment('Check RLS before update');
+      code.comment('Check RLS before update (skip if bypass enabled)');
       code.line(`const existing = await db.query<Record<string, unknown>>(`);
       code.line(`  \`SELECT * FROM "${tableName}" WHERE "id" = $1\`,`);
       code.line('  [id]');
       code.line(');');
       code.line(`if (existing.rows.length === 0) throw createNotFoundError('${pascalName}', id);`);
-      code.block(`if (!rls${pascalName}Update(existing.rows[0], ctx)) {`, () => {
+      code.block(`if (!bypass && !rls${pascalName}Update(existing.rows[0], ctx)) {`, () => {
         code.line(`throw createRLSError('update', '${pascalName}');`);
       });
       code.line();
@@ -738,20 +757,20 @@ function generateEntityApiFactory(
     // DELETE
     code.line('delete: (id: string) =>');
     code.indent();
-    code.line(`executeRequest('${name}.delete', async (ctx) => {`);
+    code.line(`executeRequest('${name}.delete', async (ctx, bypass) => {`);
     code.indent();
     code.line('await initDb();');
     code.line();
 
-    // Check RLS on existing item first
+    // Check RLS on existing item first (unless bypass is enabled)
     if (hasRLS && rls.enabled) {
-      code.comment('Check RLS before delete');
+      code.comment('Check RLS before delete (skip if bypass enabled)');
       code.line(`const existing = await db.query<Record<string, unknown>>(`);
       code.line(`  \`SELECT * FROM "${tableName}" WHERE "id" = $1\`,`);
       code.line('  [id]');
       code.line(');');
       code.line(`if (existing.rows.length === 0) throw createNotFoundError('${pascalName}', id);`);
-      code.block(`if (!rls${pascalName}Delete(existing.rows[0], ctx)) {`, () => {
+      code.block(`if (!bypass && !rls${pascalName}Delete(existing.rows[0], ctx)) {`, () => {
         code.line(`throw createRLSError('delete', '${pascalName}');`);
       });
       code.line();
@@ -845,7 +864,7 @@ function generateCreateMethodFactory(
 
   code.line(`create: (input: Types.${pascalName}Create) =>`);
   code.indent();
-  code.line(`executeRequest('${name}.create', async (ctx) => {`);
+  code.line(`executeRequest('${name}.create', async (ctx, bypass) => {`);
   code.indent();
   code.line('await initDb();');
   code.line();
@@ -888,11 +907,11 @@ function generateCreateMethodFactory(
     code.line(`const item = result.rows[0] as Types.${pascalName};`);
   }
 
-  // Check RLS on created item
+  // Check RLS on created item (unless bypass is enabled)
   if (hasRLS && rls.enabled) {
     code.line();
-    code.comment('Check RLS on created item');
-    code.block(`if (!rls${pascalName}Insert(item as unknown as Record<string, unknown>, ctx)) {`, () => {
+    code.comment('Check RLS on created item (skip if bypass enabled)');
+    code.block(`if (!bypass && !rls${pascalName}Insert(item as unknown as Record<string, unknown>, ctx)) {`, () => {
       code.comment('Rollback by deleting');
       code.line(`await db.query(\`DELETE FROM "${tableName}" WHERE "id" = $1\`, [item.id]);`);
       code.line(`throw createRLSError('insert', '${pascalName}');`);

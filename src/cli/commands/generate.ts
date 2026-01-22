@@ -18,8 +18,8 @@ import { generateTypes } from '../generators/types';
 import { generateMockDb } from '../generators/mock/db';
 import { generateMockHandlers, generateAllHandlersExport } from '../generators/mock/handlers';
 import { generateMockClient } from '../generators/mock/client';
-import { generateSeed } from '../generators/mock/seed';
 import { generateRoutes } from '../generators/mock/routes';
+import { generateUnifiedSeed } from '../generators/shared';
 import {
   generateEndpointTypes,
   generateEndpointClient,
@@ -32,7 +32,6 @@ import { generateFetchClient } from '../generators/fetch/client';
 import {
   generatePGliteDb,
   generatePGliteClient,
-  generatePGliteSeed,
   generatePGliteHandlers,
   generatePGliteEndpointHandlers,
   generatePGliteAllHandlersExport,
@@ -282,7 +281,10 @@ async function generateMockAdapter(
   const handlerCount = schemas.filter((s) => !s.isJunctionTable).length * 6; // 6 handlers per entity
   console.log(`   ✓ handlers.ts (${handlerCount} MSW handlers)`);
 
-  const seedCode = generateSeed(schemas, mockConfig);
+  const seedCode = generateUnifiedSeed(schemas, {
+    seed: mockConfig.seed,
+    fakerSeed: mockConfig.fakerSeed,
+  });
   await writeOutput(join(outputDir, 'seed.ts'), seedCode, options.dryRun);
   console.log('   ✓ seed.ts (seed/reset utilities)');
 
@@ -385,7 +387,10 @@ async function generatePGliteAdapter(
   await writeOutput(join(outputDir, 'client.ts'), clientCode, options.dryRun);
   console.log('   ✓ client.ts (SQL-based CRUD operations)');
 
-  const seedCode = generatePGliteSeed(schemas, pgliteConfig);
+  const seedCode = generateUnifiedSeed(schemas, {
+    seed: pgliteConfig.seed,
+    fakerSeed: pgliteConfig.fakerSeed,
+  });
   await writeOutput(join(outputDir, 'seed.ts'), seedCode, options.dryRun);
   console.log('   ✓ seed.ts (seed/reset utilities)');
 

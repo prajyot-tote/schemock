@@ -18,7 +18,7 @@ import { generateTypes } from '../../cli/generators/types';
 import { generateMockDb } from '../../cli/generators/mock/db';
 import { generateMockClient } from '../../cli/generators/mock/client';
 import { generateMockHandlers } from '../../cli/generators/mock/handlers';
-import { generateSeed } from '../../cli/generators/mock/seed';
+import { generateUnifiedSeed } from '../../cli/generators/shared';
 import { generateRoutes } from '../../cli/generators/mock/routes';
 import { generateSupabaseClient } from '../../cli/generators/supabase/client';
 import { generateFirebaseClient } from '../../cli/generators/firebase/client';
@@ -237,7 +237,7 @@ describe('E2E: All Targets Compile', () => {
       const clientCode = generateMockClient(analyzedSchemas);
       const routesCode = generateRoutes(analyzedSchemas);
       const handlersCode = generateMockHandlers(analyzedSchemas, '/api');
-      const seedCode = generateSeed(analyzedSchemas, {});
+      const seedCode = generateUnifiedSeed(analyzedSchemas, {});
 
       // Write files
       await writeFile2(dir, 'types.ts', typesCode);

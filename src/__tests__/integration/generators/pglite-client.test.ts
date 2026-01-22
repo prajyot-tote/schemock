@@ -239,7 +239,8 @@ describe('PGlite Client Generator', () => {
       const analyzed = analyzeTestSchemas(simpleSchemas);
       const code = generatePGliteClient(analyzed);
 
-      expect(code).toContain('withContext(rlsCtx ?? {}, () => fn(rlsCtx))');
+      // Note: bypassRLS is passed from the outer _createInternalClient scope
+      expect(code).toContain('withContext(rlsCtx ?? {}, () => fn(rlsCtx, bypassRLS))');
     });
   });
 
