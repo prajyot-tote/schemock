@@ -256,19 +256,21 @@ function generateEndpointClientMethod(code: CodeBuilder, endpoint: AnalyzedEndpo
   const paramsArg = params.length > 0 ? 'params' : '{}';
   const bodyArg = body.length > 0 ? 'body' : '{}';
 
-  code.block(`${name}: (${args.join(', ')}) =>`, () => {
-    code.line(`executeEndpoint('endpoints.${name}', async (ctx, headers) => {`);
-    code.indent();
-    code.line(`return endpointResolvers.${name}({`);
-    code.line(`  params: ${paramsArg},`);
-    code.line(`  body: ${bodyArg},`);
-    code.line('  db,');
-    code.line('  headers,');
-    code.line('  rlsContext: ctx,');
-    code.line('});');
-    code.dedent();
-    code.line('}),');
-  });
+  // Generate arrow function expression (no block braces)
+  code.line(`${name}: (${args.join(', ')}) =>`);
+  code.indent();
+  code.line(`executeEndpoint('endpoints.${name}', async (ctx, headers) => {`);
+  code.indent();
+  code.line(`return endpointResolvers.${name}({`);
+  code.line(`  params: ${paramsArg},`);
+  code.line(`  body: ${bodyArg},`);
+  code.line('  db,');
+  code.line('  headers,');
+  code.line('  rlsContext: ctx,');
+  code.line('});');
+  code.dedent();
+  code.line('}),');
+  code.dedent();
   code.line();
 }
 
