@@ -337,6 +337,29 @@ export interface PluralizeConfig {
 }
 
 /**
+ * Production seed configuration
+ *
+ * Allows users to define custom production data (super admin, default products, etc.)
+ * that gets seeded once with a kill switch to prevent re-seeding.
+ */
+export interface ProductionSeedConfig {
+  /** Path to the seed data file (default: './src/seed-data.ts') */
+  dataPath?: string;
+}
+
+/**
+ * Result of running production seed
+ */
+export interface SeedResult {
+  /** Whether the seed operation succeeded */
+  success: boolean;
+  /** Error code if failed */
+  error?: 'INVALID_SECRET' | 'ALREADY_SEEDED';
+  /** Timestamp when seeded (if already seeded or just seeded) */
+  seededAt?: Date;
+}
+
+/**
  * Main Schemock configuration
  */
 export interface SchemockConfig {
@@ -390,6 +413,12 @@ export interface SchemockConfig {
    * Middleware defined here is generated for both frontend and backend
    */
   middleware?: MiddlewareConfig;
+
+  /**
+   * Production seed configuration (v1.0)
+   * Define custom production data that gets seeded once with a kill switch.
+   */
+  productionSeed?: ProductionSeedConfig;
 }
 
 // ============================================================================
