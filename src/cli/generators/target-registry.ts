@@ -24,7 +24,7 @@ import { generateMockDb } from './mock/db';
 import { generateMockHandlers, generateAllHandlersExport } from './mock/handlers';
 import { generateMockClient } from './mock/client';
 import { generateRoutes } from './mock/routes';
-import { generateUnifiedSeed } from './shared';
+import { generateMockSeed } from './mock/seed';
 import {
   generateEndpointTypes,
   generateEndpointClient,
@@ -39,6 +39,7 @@ import { generateFetchClient } from './fetch/client';
 import {
   generatePGliteDb,
   generatePGliteClient,
+  generatePGliteSeed,
   generatePGliteHandlers,
   generatePGliteEndpointHandlers,
   generatePGliteAllHandlersExport,
@@ -282,9 +283,10 @@ async function generateMockTarget(
   await writeOutput(join(outputDir, 'handlers.ts'), handlersCode, options.dryRun);
   files.push('handlers.ts');
 
-  const seedCode = generateUnifiedSeed(schemas, {
+  const seedCode = generateMockSeed(schemas, {
     seed: mockConfig.seed,
     fakerSeed: mockConfig.fakerSeed,
+    productionSeed: config.productionSeed,
   });
   await writeOutput(join(outputDir, 'seed.ts'), seedCode, options.dryRun);
   files.push('seed.ts');
@@ -459,9 +461,10 @@ async function generatePGliteTarget(
   await writeOutput(join(outputDir, 'client.ts'), clientCode, options.dryRun);
   files.push('client.ts');
 
-  const seedCode = generateUnifiedSeed(schemas, {
+  const seedCode = generatePGliteSeed(schemas, {
     seed: pgliteConfig.seed,
     fakerSeed: pgliteConfig.fakerSeed,
+    productionSeed: config.productionSeed,
   });
   await writeOutput(join(outputDir, 'seed.ts'), seedCode, options.dryRun);
   files.push('seed.ts');

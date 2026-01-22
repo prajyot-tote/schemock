@@ -19,7 +19,7 @@ import { generateMockDb } from '../generators/mock/db';
 import { generateMockHandlers, generateAllHandlersExport } from '../generators/mock/handlers';
 import { generateMockClient } from '../generators/mock/client';
 import { generateRoutes } from '../generators/mock/routes';
-import { generateUnifiedSeed } from '../generators/shared';
+import { generateMockSeed } from '../generators/mock/seed';
 import {
   generateEndpointTypes,
   generateEndpointClient,
@@ -32,6 +32,7 @@ import { generateFetchClient } from '../generators/fetch/client';
 import {
   generatePGliteDb,
   generatePGliteClient,
+  generatePGliteSeed,
   generatePGliteHandlers,
   generatePGliteEndpointHandlers,
   generatePGliteAllHandlersExport,
@@ -281,12 +282,13 @@ async function generateMockAdapter(
   const handlerCount = schemas.filter((s) => !s.isJunctionTable).length * 6; // 6 handlers per entity
   console.log(`   ✓ handlers.ts (${handlerCount} MSW handlers)`);
 
-  const seedCode = generateUnifiedSeed(schemas, {
+  const seedCode = generateMockSeed(schemas, {
     seed: mockConfig.seed,
     fakerSeed: mockConfig.fakerSeed,
+    productionSeed: config.productionSeed,
   });
   await writeOutput(join(outputDir, 'seed.ts'), seedCode, options.dryRun);
-  console.log('   ✓ seed.ts (seed/reset utilities)');
+  console.log('   ✓ seed.ts (seed/reset + production seed utilities)');
 
   const clientCode = generateMockClient(schemas);
   await writeOutput(join(outputDir, 'client.ts'), clientCode, options.dryRun);
@@ -387,12 +389,13 @@ async function generatePGliteAdapter(
   await writeOutput(join(outputDir, 'client.ts'), clientCode, options.dryRun);
   console.log('   ✓ client.ts (SQL-based CRUD operations)');
 
-  const seedCode = generateUnifiedSeed(schemas, {
+  const seedCode = generatePGliteSeed(schemas, {
     seed: pgliteConfig.seed,
     fakerSeed: pgliteConfig.fakerSeed,
+    productionSeed: config.productionSeed,
   });
   await writeOutput(join(outputDir, 'seed.ts'), seedCode, options.dryRun);
-  console.log('   ✓ seed.ts (seed/reset utilities)');
+  console.log('   ✓ seed.ts (seed/reset + production seed utilities)');
 
   // Routes (reuse from Mock - same structure)
   const routesCode = generateRoutes(schemas);
