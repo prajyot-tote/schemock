@@ -411,6 +411,77 @@ For detailed migration instructions, see [docs/migration-db-to-api.md](docs/migr
 
 ---
 
+## Production Seed with Kill Switch
+
+Schemock supports one-time production seeding with secret validation and a kill switch to prevent re-seeding. This is useful for seeding default data like super admin users or default products.
+
+### 1. Create Seed Data File
+
+```typescript
+// src/seed-data.ts
+export const seedConfig = {
+  secret: 'my-production-secret-123',
+  data: {
+    users: [
+      { id: 'admin-uuid', name: 'Super Admin', email: 'admin@example.com', role: 'admin' }
+    ],
+    products: [
+      { id: 'prod-1', name: 'Default Product', price: 9.99 }
+    ],
+  },
+};
+```
+
+### 2. Run Production Seed
+
+```typescript
+import { runProductionSeed, isSeeded, resetProductionSeed } from './generated/mock/seed';
+// OR for PGlite:
+import { runProductionSeed, isSeeded, resetProductionSeed } from './generated/pglite/seed';
+import { seedConfig } from './seed-data';
+
+// Run the seed (validates secret, checks kill switch)
+const result = await runProductionSeed('my-production-secret-123', seedConfig);
+
+if (result.success) {
+  console.log('Seeded at:', result.seededAt);
+} else if (result.error === 'ALREADY_SEEDED') {
+  console.log('Already seeded at:', result.seededAt);
+} else if (result.error === 'INVALID_SECRET') {
+  console.error('Invalid secret key');
+}
+```
+
+### Available Functions
+
+| Function | Mock Adapter | PGlite Adapter | Description |
+|----------|--------------|----------------|-------------|
+| `isSeeded()` | sync | async | Check if already seeded |
+| `resetProductionSeed()` | sync | async | Clear kill switch for re-seeding |
+| `getSeededAt()` | sync | async | Get timestamp when seeded |
+| `runProductionSeed(secret, config)` | async | async | Run seed with validation |
+
+### Kill Switch Storage
+
+| Adapter | Storage | Key/Table |
+|---------|---------|-----------|
+| Mock | `localStorage` | `_schemock_seeded` |
+| PGlite | SQL table | `_schemock_meta` |
+
+### Config Option
+
+```typescript
+// schemock.config.ts
+export default defineConfig({
+  // ... other config
+  productionSeed: {
+    dataPath: './src/seed-data.ts',  // Optional, defaults to this path
+  },
+});
+```
+
+---
+
 ## Inline Resolver Limitations (AI Agents: Read This)
 
 When implementing custom endpoints with inline `mockResolver` functions:
