@@ -11,6 +11,7 @@ export default defineConfig([
       'middleware/index': 'src/middleware/index.ts',
       'react/index': 'src/react/index.ts',
       'cli/index': 'src/cli/index.ts',
+      'seed/index': 'src/seed/index.ts',
     },
     format: ['cjs', 'esm'],
     dts: true,

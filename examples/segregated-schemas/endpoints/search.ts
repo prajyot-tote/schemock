@@ -7,7 +7,7 @@
  * The mockResolver receives `db` which has access to ALL entities
  * because they are merged before generation.
  */
-import { defineEndpoint, field } from '../../../src/schema';
+import { defineEndpoint, field } from 'schemock/schema';
 
 export const SearchEndpoint = defineEndpoint('/api/search', {
   method: 'GET',

@@ -4,39 +4,79 @@
 import { http, HttpResponse } from 'msw';
 import { db } from './db';
 import { endpointResolvers } from './endpoint-resolvers';
+import type * as Types from './types';
+
+// Error classes for typed error handling
+class ApiError extends Error {
+  readonly status: number;
+  readonly code: string;
+
+  constructor(message: string, status: number, code?: string) {
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+    this.code = code ?? "API_ERROR";
+  }
+}
+
+class RLSError extends Error {
+  constructor(message: string = "Access denied") {
+    super(message);
+    this.name = "RLSError";
+  }
+}
+
+// Centralized error handler for endpoint handlers
+function handleError(error: unknown): Response {
+  if (error instanceof ApiError) {
+    return HttpResponse.json({ error: error.message, code: error.code }, { status: error.status });
+  }
+  if (error instanceof RLSError) {
+    return HttpResponse.json({ error: error.message }, { status: 403 });
+  }
+  if (error instanceof Error) {
+    if (error.message.toLowerCase().includes("not found")) {
+      return HttpResponse.json({ error: error.message }, { status: 404 });
+    }
+    console.error("Endpoint error:", error);
+    return HttpResponse.json({ error: error.message }, { status: 500 });
+  }
+  console.error("Unknown endpoint error:", error);
+  return HttpResponse.json({ error: "Internal server error" }, { status: 500 });
+}
 
 export const endpointHandlers = [
   // POST /api/posts/bulk-delete
   http.post('/api/posts/bulk-delete', async ({ request, params: pathParams }) => {
+    const params = {};
+
     const body = await request.json();
 
     const headers: Record<string, string> = {};
     request.headers.forEach((value, key) => { headers[key] = value; });
 
     try {
-      const result = await endpointResolvers.postsBulkDelete({ db, body, headers });
+      const result = await endpointResolvers.postsBulkDelete({ db, params: params, body: body as Types.PostsBulkDeleteBody, headers });
       return HttpResponse.json(result);
     } catch (error) {
-      console.error(`Error in ${name}:`, error);
-      const message = error instanceof Error ? error.message : "Internal server error";
-      return HttpResponse.json({ error: message }, { status: 500 });
+      return handleError(error);
     }
   }),
 
   // POST /api/posts/bulk-publish
   http.post('/api/posts/bulk-publish', async ({ request, params: pathParams }) => {
+    const params = {};
+
     const body = await request.json();
 
     const headers: Record<string, string> = {};
     request.headers.forEach((value, key) => { headers[key] = value; });
 
     try {
-      const result = await endpointResolvers.postsBulkPublish({ db, body, headers });
+      const result = await endpointResolvers.postsBulkPublish({ db, params: params, body: body as Types.PostsBulkPublishBody, headers });
       return HttpResponse.json(result);
     } catch (error) {
-      console.error(`Error in ${name}:`, error);
-      const message = error instanceof Error ? error.message : "Internal server error";
-      return HttpResponse.json({ error: message }, { status: 500 });
+      return handleError(error);
     }
   }),
 
@@ -47,16 +87,16 @@ export const endpointHandlers = [
       userId: pathParams.userId as string,
     };
 
+    const body = {};
+
     const headers: Record<string, string> = {};
     request.headers.forEach((value, key) => { headers[key] = value; });
 
     try {
-      const result = await endpointResolvers.usersByUserIdStats({ db, params, headers });
+      const result = await endpointResolvers.usersByUserIdStats({ db, params: params as Types.UsersByUserIdStatsParams, body: body, headers });
       return HttpResponse.json(result);
     } catch (error) {
-      console.error(`Error in ${name}:`, error);
-      const message = error instanceof Error ? error.message : "Internal server error";
-      return HttpResponse.json({ error: message }, { status: 500 });
+      return handleError(error);
     }
   }),
 
@@ -69,16 +109,16 @@ export const endpointHandlers = [
       limit: Number(url.searchParams.get('limit') ?? 20),
     };
 
+    const body = {};
+
     const headers: Record<string, string> = {};
     request.headers.forEach((value, key) => { headers[key] = value; });
 
     try {
-      const result = await endpointResolvers.search({ db, params, headers });
+      const result = await endpointResolvers.search({ db, params: params as Types.SearchParams, body: body, headers });
       return HttpResponse.json(result);
     } catch (error) {
-      console.error(`Error in ${name}:`, error);
-      const message = error instanceof Error ? error.message : "Internal server error";
-      return HttpResponse.json({ error: message }, { status: 500 });
+      return handleError(error);
     }
   }),
 

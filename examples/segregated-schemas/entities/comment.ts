@@ -4,7 +4,7 @@
  * References both User and Post, which are in SEPARATE files.
  * Demonstrates multi-file cross-references.
  */
-import { defineData, field, belongsTo } from '../../../src/schema';
+import { defineData, field, belongsTo } from 'schemock/schema';
 
 export const Comment = defineData('comment', {
   id: field.uuid(),

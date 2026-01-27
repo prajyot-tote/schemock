@@ -4,7 +4,7 @@
  * Views combine data from multiple entities.
  * All referenced entities are in entities/ directory.
  */
-import { defineView, field, embed, pick } from '../../../src/schema';
+import { defineView, field, embed, pick } from 'schemock/schema';
 
 // Note: We can't directly import User/Post here because that would
 // create a runtime dependency. Views use entity names as strings.

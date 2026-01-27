@@ -3,99 +3,121 @@ import { db } from './db';
 import type * as Types from './types';
 
 
-// Row-Level Security Context (generic key-value)
-export interface RLSContext {
+// =============================================================================
+// RLS Context & Client Configuration
+// 
+// Production-ready interceptor pattern for centralized auth and error handling.
+// Configure once at app startup, auth headers are added to every request.
+// =============================================================================
+
+// RLS Context - internal type for mock RLS simulation (not exported)
+interface RLSContext {
   [key: string]: unknown;
 }
 
-// =============================================================================
-// Browser-Compatible RLS Context Storage
-// 
-// Uses a simple global context that works in both browsers and Node.js.
-// This is appropriate for development/mock scenarios where concurrent
-// request isolation is not required.
-// =============================================================================
+// Request context passed to onRequest interceptor
+export interface RequestContext {
+  headers: Record<string, string>;
+  operation: string;  // e.g., "post.list", "user.create"
+}
 
-// Global context storage - works in browsers and Node.js
-let currentContext: RLSContext | null = null;
+// API Error with HTTP-like status codes
+export class ApiError extends Error {
+  readonly status: number;
+  readonly code: string;
+  readonly operation: string;
 
-/**
- * Set RLS context for the current execution.
- * 
- * @param ctx - The RLS context to set, or null to clear
- * 
- * @example
- * ```typescript
- * // Set context for a request
- * setContext({ userId: 'user-123', role: 'admin' });
- * 
- * // Clear context
- * setContext(null);
- * ```
- */
-export function setContext(ctx: RLSContext | null): void {
-  currentContext = ctx;
+  constructor(message: string, status: number, code: string, operation: string) {
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+    this.code = code;
+    this.operation = operation;
+  }
 }
 
 /**
- * Get RLS context for the current execution.
- * 
- * @returns The current RLS context, or null if not set
- */
-export function getContext(): RLSContext | null {
-  return currentContext;
-}
-
-/**
- * Run a function with RLS context.
- * Context is set before the function runs and restored after.
- * 
- * @param ctx - The RLS context to use
- * @param fn - The function to run with the context
- * @returns The result of the function
+ * Client configuration for interceptors.
  * 
  * @example
  * ```typescript
- * // Run with context
- * const result = runWithContext({ userId: '123' }, () => {
- *   return api.posts.list();
+ * const api = createClient({
+ *   onRequest: (ctx) => {
+ *     const token = localStorage.getItem("token");
+ *     if (token) {
+ *       ctx.headers.Authorization = `Bearer ${token}`;
+ *     }
+ *     return ctx;
+ *   },
+ *   onError: (error) => {
+ *     if (error.status === 401) {
+ *       window.location.href = "/login";
+ *     }
+ *   }
  * });
  * ```
  */
-export function runWithContext<T>(ctx: RLSContext | null, fn: () => T): T {
-  const previousContext = currentContext;
-  currentContext = ctx;
+export interface ClientConfig {
+  /**
+   * Called before each API operation.
+   * Use this to add auth headers, logging, etc.
+   */
+  onRequest?: (ctx: RequestContext) => RequestContext | Promise<RequestContext>;
+
+  /**
+   * Called when an error occurs.
+   * Use this for centralized error handling (401 redirect, toast notifications, etc.)
+   */
+  onError?: (error: ApiError) => void | Promise<void>;
+}
+
+// Decode JWT payload without validation (mock mode trusts the token)
+function decodeJwtPayload(token: string): RLSContext | null {
   try {
-    return fn();
-  } finally {
-    currentContext = previousContext;
+    const parts = token.split(".");
+    if (parts.length !== 3) return null;
+
+    const payload = parts[1].replace(/-/g, "+").replace(/_/g, "/");
+    const decoded = typeof atob === "function"
+      ? atob(payload)
+      : Buffer.from(payload, "base64").toString("utf-8");
+
+    return JSON.parse(decoded);
+  } catch {
+    return null;
   }
 }
 
-/**
- * Async version of runWithContext for async functions.
- * 
- * @param ctx - The RLS context to use
- * @param fn - The async function to run with the context
- * @returns Promise resolving to the result of the function
- */
-export async function runWithContextAsync<T>(ctx: RLSContext | null, fn: () => Promise<T>): Promise<T> {
-  const previousContext = currentContext;
-  currentContext = ctx;
-  try {
-    return await fn();
-  } finally {
-    currentContext = previousContext;
-  }
+// Extract RLS context from request headers
+function extractContextFromHeaders(headers: Record<string, string>): RLSContext | null {
+  const authHeader = headers["Authorization"] || headers["authorization"];
+  if (!authHeader) return null;
+
+  const token = authHeader.startsWith("Bearer ")
+    ? authHeader.slice(7)
+    : authHeader;
+
+  return token ? decodeJwtPayload(token) : null;
 }
 
-// RLS Error for unauthorized access
-export class RLSError extends Error {
-  readonly code = "RLS_DENIED";
-  constructor(operation: string, entity: string) {
-    super(`Access denied: ${operation} on ${entity}`);
-    this.name = "RLSError";
-  }
+// Helper to create not found error
+function createNotFoundError(entity: string, id: string): ApiError {
+  return new ApiError(
+    `${entity} not found: ${id}`,
+    404,
+    "NOT_FOUND",
+    `${entity}.get`
+  );
+}
+
+// Helper to create RLS denial error
+function createRLSError(operation: string, entity: string): ApiError {
+  return new ApiError(
+    `Access denied: ${operation} on ${entity}`,
+    403,
+    "RLS_DENIED",
+    `${entity}.${operation}`
+  );
 }
 
 function checkBypass(_ctx: RLSContext | null): boolean {
@@ -110,7 +132,7 @@ const rlsUserDelete = (_row: Record<string, unknown>, _ctx: RLSContext | null): 
 
 // RLS filters for Post
 const rlsPostSelect = (row: Record<string, unknown>, ctx: RLSContext | null): boolean => {
-  return row.published||row.authorId===ctx.userId;
+  return row.published || row.authorId === ctx.userId;
 };
 const rlsPostInsert = (row: Record<string, unknown>, ctx: RLSContext | null): boolean => {
   // Scope: undefined must match context.undefined
@@ -118,10 +140,10 @@ const rlsPostInsert = (row: Record<string, unknown>, ctx: RLSContext | null): bo
   return true;
 };
 const rlsPostUpdate = (row: Record<string, unknown>, ctx: RLSContext | null): boolean => {
-  return row.authorId===ctx.userId;
+  return row.authorId === ctx.userId;
 };
 const rlsPostDelete = (row: Record<string, unknown>, ctx: RLSContext | null): boolean => {
-  return row.authorId===ctx.userId;
+  return row.authorId === ctx.userId;
 };
 
 // RLS filters for Comment (disabled)
@@ -183,467 +205,607 @@ function parseRow<T>(row: Record<string, unknown>, jsonFields: string[]): T {
   return result as T;
 }
 
-export const api = {
+// API client type
+export interface ApiClient {
   user: {
-    list: async (options?: Types.QueryOptions<Types.UserFilter, never>): Promise<Types.ListResponse<Types.User>> => {
-      let items = db.user.getAll() as unknown as Types.User[];
-
-      // Apply RLS filter
-      const ctx = getContext();
-      items = items.filter(item => rlsUserSelect(item as unknown as Record<string, unknown>, ctx));
-
-      if (options?.where) {
-        items = applyFilter(items, options.where);
-      }
-
-      const total = items.length;
-
-      if (options?.orderBy) {
-        const [field, dir] = Object.entries(options.orderBy)[0];
-        items = [...items].sort((a, b) => {
-          const aVal = (a as Record<string, unknown>)[field] as string | number | Date;
-          const bVal = (b as Record<string, unknown>)[field] as string | number | Date;
-          if (aVal < bVal) return dir === 'asc' ? -1 : 1;
-          if (aVal > bVal) return dir === 'asc' ? 1 : -1;
-          return 0;
-        });
-      }
-
-      const limit = options?.limit ?? 20;
-      const offset = options?.offset ?? 0;
-      items = items.slice(offset, offset + limit);
-
-      return { data: items, meta: { total, limit, offset, hasMore: offset + limit < total } };
-    },
-
-    get: async (id: string, options?: { include?: never[] }): Promise<Types.ItemResponse<Types.User>> => {
-      const rawItem = db.user.findFirst({ where: { id: { equals: id } } }) as unknown as Record<string, unknown> | null;
-      if (!rawItem) throw new Error('User not found');
-      const item = rawItem as Types.User;
-
-      // Apply RLS check
-      const ctx = getContext();
-      if (!rlsUserSelect(item as unknown as Record<string, unknown>, ctx)) {
-        throw new RLSError('select', 'User');
-      }
-
-      return { data: item };
-    },
-
-    create: async (input: Types.UserCreate): Promise<Types.ItemResponse<Types.User>> => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const rawItem = db.user.create(input as any) as unknown as Record<string, unknown>;
-      const item = rawItem as Types.User;
-
-      // Check RLS on created item
-      const ctx = getContext();
-      if (!rlsUserInsert(item as unknown as Record<string, unknown>, ctx)) {
-        // Rollback by deleting
-        db.user.delete({ where: { id: { equals: item.id } } });
-        throw new RLSError('insert', 'User');
-      }
-
-      return { data: item };
-    },
-
-    update: async (id: string, input: Types.UserUpdate): Promise<Types.ItemResponse<Types.User>> => {
-      // Check RLS before update
-      const existing = db.user.findFirst({ where: { id: { equals: id } } }) as unknown as Record<string, unknown> | null;
-      if (!existing) throw new Error('User not found');
-      const ctx = getContext();
-      if (!rlsUserUpdate(existing, ctx)) {
-        throw new RLSError('update', 'User');
-      }
-
-      const rawItem = db.user.update({
-        where: { id: { equals: id } },
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        data: { ...input, updatedAt: new Date() } as any,
-      }) as unknown as Record<string, unknown> | null;
-      return { data: rawItem as Types.User };
-    },
-
-    delete: async (id: string): Promise<void> => {
-      // Check RLS before delete
-      const existing = db.user.findFirst({ where: { id: { equals: id } } }) as unknown as Record<string, unknown> | null;
-      if (!existing) throw new Error('User not found');
-      const ctx = getContext();
-      if (!rlsUserDelete(existing, ctx)) {
-        throw new RLSError('delete', 'User');
-      }
-
-      const item = db.user.delete({ where: { id: { equals: id } } });
-    },
-  },
-
+    list: (options?: Types.QueryOptions<Types.UserFilter, never>) => Promise<Types.ListResponse<Types.User>>;
+    get: (id: string, options?: { include?: never[] }) => Promise<Types.ItemResponse<Types.User>>;
+    create: (input: Types.UserCreate) => Promise<Types.ItemResponse<Types.User>>;
+    update: (id: string, input: Types.UserUpdate) => Promise<Types.ItemResponse<Types.User>>;
+    delete: (id: string) => Promise<void>;
+  };
   post: {
-    list: async (options?: Types.QueryOptions<Types.PostFilter, never>): Promise<Types.ListResponse<Types.Post>> => {
-      let items = db.post.getAll() as unknown as Types.Post[];
-
-      // Apply RLS filter
-      const ctx = getContext();
-      items = items.filter(item => rlsPostSelect(item as unknown as Record<string, unknown>, ctx));
-
-      if (options?.where) {
-        items = applyFilter(items, options.where);
-      }
-
-      const total = items.length;
-
-      if (options?.orderBy) {
-        const [field, dir] = Object.entries(options.orderBy)[0];
-        items = [...items].sort((a, b) => {
-          const aVal = (a as Record<string, unknown>)[field] as string | number | Date;
-          const bVal = (b as Record<string, unknown>)[field] as string | number | Date;
-          if (aVal < bVal) return dir === 'asc' ? -1 : 1;
-          if (aVal > bVal) return dir === 'asc' ? 1 : -1;
-          return 0;
-        });
-      }
-
-      const limit = options?.limit ?? 20;
-      const offset = options?.offset ?? 0;
-      items = items.slice(offset, offset + limit);
-
-      return { data: items, meta: { total, limit, offset, hasMore: offset + limit < total } };
-    },
-
-    get: async (id: string, options?: { include?: never[] }): Promise<Types.ItemResponse<Types.Post>> => {
-      const rawItem = db.post.findFirst({ where: { id: { equals: id } } }) as unknown as Record<string, unknown> | null;
-      if (!rawItem) throw new Error('Post not found');
-      const item = rawItem as Types.Post;
-
-      // Apply RLS check
-      const ctx = getContext();
-      if (!rlsPostSelect(item as unknown as Record<string, unknown>, ctx)) {
-        throw new RLSError('select', 'Post');
-      }
-
-      return { data: item };
-    },
-
-    create: async (input: Types.PostCreate): Promise<Types.ItemResponse<Types.Post>> => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const rawItem = db.post.create(input as any) as unknown as Record<string, unknown>;
-      const item = rawItem as Types.Post;
-
-      // Check RLS on created item
-      const ctx = getContext();
-      if (!rlsPostInsert(item as unknown as Record<string, unknown>, ctx)) {
-        // Rollback by deleting
-        db.post.delete({ where: { id: { equals: item.id } } });
-        throw new RLSError('insert', 'Post');
-      }
-
-      return { data: item };
-    },
-
-    update: async (id: string, input: Types.PostUpdate): Promise<Types.ItemResponse<Types.Post>> => {
-      // Check RLS before update
-      const existing = db.post.findFirst({ where: { id: { equals: id } } }) as unknown as Record<string, unknown> | null;
-      if (!existing) throw new Error('Post not found');
-      const ctx = getContext();
-      if (!rlsPostUpdate(existing, ctx)) {
-        throw new RLSError('update', 'Post');
-      }
-
-      const rawItem = db.post.update({
-        where: { id: { equals: id } },
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        data: { ...input, updatedAt: new Date() } as any,
-      }) as unknown as Record<string, unknown> | null;
-      return { data: rawItem as Types.Post };
-    },
-
-    delete: async (id: string): Promise<void> => {
-      // Check RLS before delete
-      const existing = db.post.findFirst({ where: { id: { equals: id } } }) as unknown as Record<string, unknown> | null;
-      if (!existing) throw new Error('Post not found');
-      const ctx = getContext();
-      if (!rlsPostDelete(existing, ctx)) {
-        throw new RLSError('delete', 'Post');
-      }
-
-      const item = db.post.delete({ where: { id: { equals: id } } });
-    },
-  },
-
+    list: (options?: Types.QueryOptions<Types.PostFilter, never>) => Promise<Types.ListResponse<Types.Post>>;
+    get: (id: string, options?: { include?: never[] }) => Promise<Types.ItemResponse<Types.Post>>;
+    create: (input: Types.PostCreate) => Promise<Types.ItemResponse<Types.Post>>;
+    update: (id: string, input: Types.PostUpdate) => Promise<Types.ItemResponse<Types.Post>>;
+    delete: (id: string) => Promise<void>;
+  };
   comment: {
-    list: async (options?: Types.QueryOptions<Types.CommentFilter, never>): Promise<Types.ListResponse<Types.Comment>> => {
-      let items = db.comment.getAll() as unknown as Types.Comment[];
-
-      // Apply RLS filter
-      const ctx = getContext();
-      items = items.filter(item => rlsCommentSelect(item as unknown as Record<string, unknown>, ctx));
-
-      if (options?.where) {
-        items = applyFilter(items, options.where);
-      }
-
-      const total = items.length;
-
-      if (options?.orderBy) {
-        const [field, dir] = Object.entries(options.orderBy)[0];
-        items = [...items].sort((a, b) => {
-          const aVal = (a as Record<string, unknown>)[field] as string | number | Date;
-          const bVal = (b as Record<string, unknown>)[field] as string | number | Date;
-          if (aVal < bVal) return dir === 'asc' ? -1 : 1;
-          if (aVal > bVal) return dir === 'asc' ? 1 : -1;
-          return 0;
-        });
-      }
-
-      const limit = options?.limit ?? 20;
-      const offset = options?.offset ?? 0;
-      items = items.slice(offset, offset + limit);
-
-      return { data: items, meta: { total, limit, offset, hasMore: offset + limit < total } };
-    },
-
-    get: async (id: string, options?: { include?: never[] }): Promise<Types.ItemResponse<Types.Comment>> => {
-      const rawItem = db.comment.findFirst({ where: { id: { equals: id } } }) as unknown as Record<string, unknown> | null;
-      if (!rawItem) throw new Error('Comment not found');
-      const item = rawItem as Types.Comment;
-
-      // Apply RLS check
-      const ctx = getContext();
-      if (!rlsCommentSelect(item as unknown as Record<string, unknown>, ctx)) {
-        throw new RLSError('select', 'Comment');
-      }
-
-      return { data: item };
-    },
-
-    create: async (input: Types.CommentCreate): Promise<Types.ItemResponse<Types.Comment>> => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const rawItem = db.comment.create(input as any) as unknown as Record<string, unknown>;
-      const item = rawItem as Types.Comment;
-
-      // Check RLS on created item
-      const ctx = getContext();
-      if (!rlsCommentInsert(item as unknown as Record<string, unknown>, ctx)) {
-        // Rollback by deleting
-        db.comment.delete({ where: { id: { equals: item.id } } });
-        throw new RLSError('insert', 'Comment');
-      }
-
-      return { data: item };
-    },
-
-    update: async (id: string, input: Types.CommentUpdate): Promise<Types.ItemResponse<Types.Comment>> => {
-      // Check RLS before update
-      const existing = db.comment.findFirst({ where: { id: { equals: id } } }) as unknown as Record<string, unknown> | null;
-      if (!existing) throw new Error('Comment not found');
-      const ctx = getContext();
-      if (!rlsCommentUpdate(existing, ctx)) {
-        throw new RLSError('update', 'Comment');
-      }
-
-      const rawItem = db.comment.update({
-        where: { id: { equals: id } },
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        data: { ...input, updatedAt: new Date() } as any,
-      }) as unknown as Record<string, unknown> | null;
-      return { data: rawItem as Types.Comment };
-    },
-
-    delete: async (id: string): Promise<void> => {
-      // Check RLS before delete
-      const existing = db.comment.findFirst({ where: { id: { equals: id } } }) as unknown as Record<string, unknown> | null;
-      if (!existing) throw new Error('Comment not found');
-      const ctx = getContext();
-      if (!rlsCommentDelete(existing, ctx)) {
-        throw new RLSError('delete', 'Comment');
-      }
-
-      const item = db.comment.delete({ where: { id: { equals: id } } });
-    },
-  },
-
+    list: (options?: Types.QueryOptions<Types.CommentFilter, never>) => Promise<Types.ListResponse<Types.Comment>>;
+    get: (id: string, options?: { include?: never[] }) => Promise<Types.ItemResponse<Types.Comment>>;
+    create: (input: Types.CommentCreate) => Promise<Types.ItemResponse<Types.Comment>>;
+    update: (id: string, input: Types.CommentUpdate) => Promise<Types.ItemResponse<Types.Comment>>;
+    delete: (id: string) => Promise<void>;
+  };
   post-detail: {
-    list: async (options?: Types.QueryOptions<Types.PostDetailFilter, never>): Promise<Types.ListResponse<Types.PostDetail>> => {
-      let rawItems = db.post-detail.getAll() as unknown as Record<string, unknown>[];
-      let items = rawItems.map(row => parseRow<Types.PostDetail>(row, ['author', 'comments']));
-
-      // Apply RLS filter
-      const ctx = getContext();
-      items = items.filter(item => rlsPostDetailSelect(item as unknown as Record<string, unknown>, ctx));
-
-      if (options?.where) {
-        items = applyFilter(items, options.where);
-      }
-
-      const total = items.length;
-
-      if (options?.orderBy) {
-        const [field, dir] = Object.entries(options.orderBy)[0];
-        items = [...items].sort((a, b) => {
-          const aVal = (a as Record<string, unknown>)[field] as string | number | Date;
-          const bVal = (b as Record<string, unknown>)[field] as string | number | Date;
-          if (aVal < bVal) return dir === 'asc' ? -1 : 1;
-          if (aVal > bVal) return dir === 'asc' ? 1 : -1;
-          return 0;
-        });
-      }
-
-      const limit = options?.limit ?? 20;
-      const offset = options?.offset ?? 0;
-      items = items.slice(offset, offset + limit);
-
-      return { data: items, meta: { total, limit, offset, hasMore: offset + limit < total } };
-    },
-
-    get: async (id: string, options?: { include?: never[] }): Promise<Types.ItemResponse<Types.PostDetail>> => {
-      const rawItem = db.post-detail.findFirst({ where: { id: { equals: id } } }) as unknown as Record<string, unknown> | null;
-      if (!rawItem) throw new Error('PostDetail not found');
-      const item = parseRow<Types.PostDetail>(rawItem, ['author', 'comments']);
-
-      // Apply RLS check
-      const ctx = getContext();
-      if (!rlsPostDetailSelect(item as unknown as Record<string, unknown>, ctx)) {
-        throw new RLSError('select', 'PostDetail');
-      }
-
-      return { data: item };
-    },
-
-    create: async (input: Types.PostDetailCreate): Promise<Types.ItemResponse<Types.PostDetail>> => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const rawItem = db.post-detail.create(input as any) as unknown as Record<string, unknown>;
-      const item = parseRow<Types.PostDetail>(rawItem, ['author', 'comments']);
-
-      // Check RLS on created item
-      const ctx = getContext();
-      if (!rlsPostDetailInsert(item as unknown as Record<string, unknown>, ctx)) {
-        // Rollback by deleting
-        db.post-detail.delete({ where: { id: { equals: item.id } } });
-        throw new RLSError('insert', 'PostDetail');
-      }
-
-      return { data: item };
-    },
-
-    update: async (id: string, input: Types.PostDetailUpdate): Promise<Types.ItemResponse<Types.PostDetail>> => {
-      // Check RLS before update
-      const existing = db.post-detail.findFirst({ where: { id: { equals: id } } }) as unknown as Record<string, unknown> | null;
-      if (!existing) throw new Error('PostDetail not found');
-      const ctx = getContext();
-      if (!rlsPostDetailUpdate(existing, ctx)) {
-        throw new RLSError('update', 'PostDetail');
-      }
-
-      const rawItem = db.post-detail.update({
-        where: { id: { equals: id } },
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        data: { ...input, updatedAt: new Date() } as any,
-      }) as unknown as Record<string, unknown> | null;
-      return { data: parseRow<Types.PostDetail>(rawItem!, ['author', 'comments']) };
-    },
-
-    delete: async (id: string): Promise<void> => {
-      // Check RLS before delete
-      const existing = db.post-detail.findFirst({ where: { id: { equals: id } } }) as unknown as Record<string, unknown> | null;
-      if (!existing) throw new Error('PostDetail not found');
-      const ctx = getContext();
-      if (!rlsPostDetailDelete(existing, ctx)) {
-        throw new RLSError('delete', 'PostDetail');
-      }
-
-      const item = db.post-detail.delete({ where: { id: { equals: id } } });
-    },
-  },
-
+    list: (options?: Types.QueryOptions<Types.PostDetailFilter, never>) => Promise<Types.ListResponse<Types.PostDetail>>;
+    get: (id: string, options?: { include?: never[] }) => Promise<Types.ItemResponse<Types.PostDetail>>;
+    create: (input: Types.PostDetailCreate) => Promise<Types.ItemResponse<Types.PostDetail>>;
+    update: (id: string, input: Types.PostDetailUpdate) => Promise<Types.ItemResponse<Types.PostDetail>>;
+    delete: (id: string) => Promise<void>;
+  };
   user-profile: {
-    list: async (options?: Types.QueryOptions<Types.UserProfileFilter, never>): Promise<Types.ListResponse<Types.UserProfile>> => {
-      let rawItems = db.user-profile.getAll() as unknown as Record<string, unknown>[];
-      let items = rawItems.map(row => parseRow<Types.UserProfile>(row, ['stats', 'recentPosts']));
+    list: (options?: Types.QueryOptions<Types.UserProfileFilter, never>) => Promise<Types.ListResponse<Types.UserProfile>>;
+    get: (id: string, options?: { include?: never[] }) => Promise<Types.ItemResponse<Types.UserProfile>>;
+    create: (input: Types.UserProfileCreate) => Promise<Types.ItemResponse<Types.UserProfile>>;
+    update: (id: string, input: Types.UserProfileUpdate) => Promise<Types.ItemResponse<Types.UserProfile>>;
+    delete: (id: string) => Promise<void>;
+  };
+}
 
-      // Apply RLS filter
-      const ctx = getContext();
-      items = items.filter(item => rlsUserProfileSelect(item as unknown as Record<string, unknown>, ctx));
+/**
+ * Create a configured API client with interceptors.
+ * 
+ * Use this for production code to centralize auth and error handling.
+ * 
+ * @param config - Client configuration with interceptors
+ * @returns Configured API client
+ * 
+ * @example
+ * ```typescript
+ * import { createClient } from './generated/client';
+ * import { createMockJwt } from 'schemock/middleware';
+ * 
+ * const api = createClient({
+ *   // Add auth headers to every request
+ *   onRequest: (ctx) => {
+ *     const token = localStorage.getItem("authToken");
+ *     if (token) {
+ *       ctx.headers.Authorization = `Bearer ${token}`;
+ *     }
+ *     return ctx;
+ *   },
+ * 
+ *   // Centralized error handling
+ *   onError: (error) => {
+ *     if (error.status === 401) {
+ *       // Token expired - redirect to login
+ *       window.location.href = "/login";
+ *     }
+ *     if (error.status === 403) {
+ *       // Access denied - show notification
+ *       toast.error("Access denied");
+ *     }
+ *   }
+ * });
+ * 
+ * // Now use the API - auth is automatic
+ * const posts = await api.post.list();
+ * ```
+ */
+export function createClient(config?: ClientConfig): ApiClient {
+  const interceptors = config ?? {};
 
-      if (options?.where) {
-        items = applyFilter(items, options.where);
+  // Internal helper to run request through interceptors
+  async function executeRequest<T>(
+    operation: string,
+    fn: (ctx: RLSContext | null) => T | Promise<T>
+  ): Promise<T> {
+    // Build request context
+    let requestCtx: RequestContext = { headers: {}, operation };
+
+    // Run onRequest interceptor (user adds auth headers here)
+    if (interceptors.onRequest) {
+      requestCtx = await interceptors.onRequest(requestCtx);
+    }
+
+    // Extract RLS context from headers
+    const rlsCtx = extractContextFromHeaders(requestCtx.headers);
+
+    try {
+      return await fn(rlsCtx);
+    } catch (err) {
+      // Enhance error if not already ApiError
+      const error = err instanceof ApiError ? err : new ApiError(
+        err instanceof Error ? err.message : String(err),
+        500,
+        "INTERNAL_ERROR",
+        operation
+      );
+
+      // Run onError interceptor
+      if (interceptors.onError) {
+        await interceptors.onError(error);
       }
 
-      const total = items.length;
+      throw error;
+    }
+  }
 
-      if (options?.orderBy) {
-        const [field, dir] = Object.entries(options.orderBy)[0];
-        items = [...items].sort((a, b) => {
-          const aVal = (a as Record<string, unknown>)[field] as string | number | Date;
-          const bVal = (b as Record<string, unknown>)[field] as string | number | Date;
-          if (aVal < bVal) return dir === 'asc' ? -1 : 1;
-          if (aVal > bVal) return dir === 'asc' ? 1 : -1;
-          return 0;
-        });
-      }
+  // Build API client with all entity methods
+  return {
+    user: {
+      list: (options?: Types.QueryOptions<Types.UserFilter, never>) =>
+        executeRequest('user.list', (ctx) => {
+          let items = db.user.getAll() as unknown as Types.User[];
 
-      const limit = options?.limit ?? 20;
-      const offset = options?.offset ?? 0;
-      items = items.slice(offset, offset + limit);
+          // Apply RLS filter
+          items = items.filter(item => rlsUserSelect(item as unknown as Record<string, unknown>, ctx));
 
-      return { data: items, meta: { total, limit, offset, hasMore: offset + limit < total } };
+          if (options?.where) {
+            items = applyFilter(items, options.where);
+          }
+
+          const total = items.length;
+
+          if (options?.orderBy) {
+            const [field, dir] = Object.entries(options.orderBy)[0];
+            items = [...items].sort((a, b) => {
+              const aVal = (a as Record<string, unknown>)[field] as string | number | Date;
+              const bVal = (b as Record<string, unknown>)[field] as string | number | Date;
+              if (aVal < bVal) return dir === 'asc' ? -1 : 1;
+              if (aVal > bVal) return dir === 'asc' ? 1 : -1;
+              return 0;
+            });
+          }
+
+          const limit = options?.limit ?? 20;
+          const offset = options?.offset ?? 0;
+          items = items.slice(offset, offset + limit);
+
+          return { data: items, meta: { total, limit, offset, hasMore: offset + limit < total } };
+        }),
+
+      get: (id: string, options?: { include?: never[] }) =>
+        executeRequest('user.get', (ctx) => {
+          const rawItem = db.user.findFirst({ where: { id: { equals: id } } }) as unknown as Record<string, unknown> | null;
+          if (!rawItem) throw createNotFoundError('User', id);
+          const item = rawItem as Types.User;
+
+          // Apply RLS check
+          if (!rlsUserSelect(item as unknown as Record<string, unknown>, ctx)) {
+            throw createRLSError('select', 'User');
+          }
+
+          return { data: item };
+        }),
+
+      create: (input: Types.UserCreate) =>
+        executeRequest('user.create', (ctx) => {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const rawItem = db.user.create(input as any) as unknown as Record<string, unknown>;
+          const item = rawItem as Types.User;
+
+          // Check RLS on created item
+          if (!rlsUserInsert(item as unknown as Record<string, unknown>, ctx)) {
+            // Rollback by deleting
+            db.user.delete({ where: { id: { equals: item.id } } });
+            throw createRLSError('insert', 'User');
+          }
+
+          return { data: item };
+        }),
+
+      update: (id: string, input: Types.UserUpdate) =>
+        executeRequest('user.update', (ctx) => {
+          // Check RLS before update
+          const existing = db.user.findFirst({ where: { id: { equals: id } } }) as unknown as Record<string, unknown> | null;
+          if (!existing) throw createNotFoundError('User', id);
+          if (!rlsUserUpdate(existing, ctx)) {
+            throw createRLSError('update', 'User');
+          }
+
+          const rawItem = db.user.update({
+            where: { id: { equals: id } },
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            data: { ...input, updatedAt: new Date() } as any,
+          }) as unknown as Record<string, unknown> | null;
+          return { data: rawItem as Types.User };
+        }),
+
+      delete: (id: string) =>
+        executeRequest('user.delete', (ctx) => {
+          // Check RLS before delete
+          const existing = db.user.findFirst({ where: { id: { equals: id } } }) as unknown as Record<string, unknown> | null;
+          if (!existing) throw createNotFoundError('User', id);
+          if (!rlsUserDelete(existing, ctx)) {
+            throw createRLSError('delete', 'User');
+          }
+
+          const item = db.user.delete({ where: { id: { equals: id } } });
+        }),
     },
 
-    get: async (id: string, options?: { include?: never[] }): Promise<Types.ItemResponse<Types.UserProfile>> => {
-      const rawItem = db.user-profile.findFirst({ where: { id: { equals: id } } }) as unknown as Record<string, unknown> | null;
-      if (!rawItem) throw new Error('UserProfile not found');
-      const item = parseRow<Types.UserProfile>(rawItem, ['stats', 'recentPosts']);
+    post: {
+      list: (options?: Types.QueryOptions<Types.PostFilter, never>) =>
+        executeRequest('post.list', (ctx) => {
+          let items = db.post.getAll() as unknown as Types.Post[];
 
-      // Apply RLS check
-      const ctx = getContext();
-      if (!rlsUserProfileSelect(item as unknown as Record<string, unknown>, ctx)) {
-        throw new RLSError('select', 'UserProfile');
-      }
+          // Apply RLS filter
+          items = items.filter(item => rlsPostSelect(item as unknown as Record<string, unknown>, ctx));
 
-      return { data: item };
+          if (options?.where) {
+            items = applyFilter(items, options.where);
+          }
+
+          const total = items.length;
+
+          if (options?.orderBy) {
+            const [field, dir] = Object.entries(options.orderBy)[0];
+            items = [...items].sort((a, b) => {
+              const aVal = (a as Record<string, unknown>)[field] as string | number | Date;
+              const bVal = (b as Record<string, unknown>)[field] as string | number | Date;
+              if (aVal < bVal) return dir === 'asc' ? -1 : 1;
+              if (aVal > bVal) return dir === 'asc' ? 1 : -1;
+              return 0;
+            });
+          }
+
+          const limit = options?.limit ?? 20;
+          const offset = options?.offset ?? 0;
+          items = items.slice(offset, offset + limit);
+
+          return { data: items, meta: { total, limit, offset, hasMore: offset + limit < total } };
+        }),
+
+      get: (id: string, options?: { include?: never[] }) =>
+        executeRequest('post.get', (ctx) => {
+          const rawItem = db.post.findFirst({ where: { id: { equals: id } } }) as unknown as Record<string, unknown> | null;
+          if (!rawItem) throw createNotFoundError('Post', id);
+          const item = rawItem as Types.Post;
+
+          // Apply RLS check
+          if (!rlsPostSelect(item as unknown as Record<string, unknown>, ctx)) {
+            throw createRLSError('select', 'Post');
+          }
+
+          return { data: item };
+        }),
+
+      create: (input: Types.PostCreate) =>
+        executeRequest('post.create', (ctx) => {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const rawItem = db.post.create(input as any) as unknown as Record<string, unknown>;
+          const item = rawItem as Types.Post;
+
+          // Check RLS on created item
+          if (!rlsPostInsert(item as unknown as Record<string, unknown>, ctx)) {
+            // Rollback by deleting
+            db.post.delete({ where: { id: { equals: item.id } } });
+            throw createRLSError('insert', 'Post');
+          }
+
+          return { data: item };
+        }),
+
+      update: (id: string, input: Types.PostUpdate) =>
+        executeRequest('post.update', (ctx) => {
+          // Check RLS before update
+          const existing = db.post.findFirst({ where: { id: { equals: id } } }) as unknown as Record<string, unknown> | null;
+          if (!existing) throw createNotFoundError('Post', id);
+          if (!rlsPostUpdate(existing, ctx)) {
+            throw createRLSError('update', 'Post');
+          }
+
+          const rawItem = db.post.update({
+            where: { id: { equals: id } },
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            data: { ...input, updatedAt: new Date() } as any,
+          }) as unknown as Record<string, unknown> | null;
+          return { data: rawItem as Types.Post };
+        }),
+
+      delete: (id: string) =>
+        executeRequest('post.delete', (ctx) => {
+          // Check RLS before delete
+          const existing = db.post.findFirst({ where: { id: { equals: id } } }) as unknown as Record<string, unknown> | null;
+          if (!existing) throw createNotFoundError('Post', id);
+          if (!rlsPostDelete(existing, ctx)) {
+            throw createRLSError('delete', 'Post');
+          }
+
+          const item = db.post.delete({ where: { id: { equals: id } } });
+        }),
     },
 
-    create: async (input: Types.UserProfileCreate): Promise<Types.ItemResponse<Types.UserProfile>> => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const rawItem = db.user-profile.create(input as any) as unknown as Record<string, unknown>;
-      const item = parseRow<Types.UserProfile>(rawItem, ['stats', 'recentPosts']);
+    comment: {
+      list: (options?: Types.QueryOptions<Types.CommentFilter, never>) =>
+        executeRequest('comment.list', (ctx) => {
+          let items = db.comment.getAll() as unknown as Types.Comment[];
 
-      // Check RLS on created item
-      const ctx = getContext();
-      if (!rlsUserProfileInsert(item as unknown as Record<string, unknown>, ctx)) {
-        // Rollback by deleting
-        db.user-profile.delete({ where: { id: { equals: item.id } } });
-        throw new RLSError('insert', 'UserProfile');
-      }
+          // Apply RLS filter
+          items = items.filter(item => rlsCommentSelect(item as unknown as Record<string, unknown>, ctx));
 
-      return { data: item };
+          if (options?.where) {
+            items = applyFilter(items, options.where);
+          }
+
+          const total = items.length;
+
+          if (options?.orderBy) {
+            const [field, dir] = Object.entries(options.orderBy)[0];
+            items = [...items].sort((a, b) => {
+              const aVal = (a as Record<string, unknown>)[field] as string | number | Date;
+              const bVal = (b as Record<string, unknown>)[field] as string | number | Date;
+              if (aVal < bVal) return dir === 'asc' ? -1 : 1;
+              if (aVal > bVal) return dir === 'asc' ? 1 : -1;
+              return 0;
+            });
+          }
+
+          const limit = options?.limit ?? 20;
+          const offset = options?.offset ?? 0;
+          items = items.slice(offset, offset + limit);
+
+          return { data: items, meta: { total, limit, offset, hasMore: offset + limit < total } };
+        }),
+
+      get: (id: string, options?: { include?: never[] }) =>
+        executeRequest('comment.get', (ctx) => {
+          const rawItem = db.comment.findFirst({ where: { id: { equals: id } } }) as unknown as Record<string, unknown> | null;
+          if (!rawItem) throw createNotFoundError('Comment', id);
+          const item = rawItem as Types.Comment;
+
+          // Apply RLS check
+          if (!rlsCommentSelect(item as unknown as Record<string, unknown>, ctx)) {
+            throw createRLSError('select', 'Comment');
+          }
+
+          return { data: item };
+        }),
+
+      create: (input: Types.CommentCreate) =>
+        executeRequest('comment.create', (ctx) => {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const rawItem = db.comment.create(input as any) as unknown as Record<string, unknown>;
+          const item = rawItem as Types.Comment;
+
+          // Check RLS on created item
+          if (!rlsCommentInsert(item as unknown as Record<string, unknown>, ctx)) {
+            // Rollback by deleting
+            db.comment.delete({ where: { id: { equals: item.id } } });
+            throw createRLSError('insert', 'Comment');
+          }
+
+          return { data: item };
+        }),
+
+      update: (id: string, input: Types.CommentUpdate) =>
+        executeRequest('comment.update', (ctx) => {
+          // Check RLS before update
+          const existing = db.comment.findFirst({ where: { id: { equals: id } } }) as unknown as Record<string, unknown> | null;
+          if (!existing) throw createNotFoundError('Comment', id);
+          if (!rlsCommentUpdate(existing, ctx)) {
+            throw createRLSError('update', 'Comment');
+          }
+
+          const rawItem = db.comment.update({
+            where: { id: { equals: id } },
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            data: { ...input, updatedAt: new Date() } as any,
+          }) as unknown as Record<string, unknown> | null;
+          return { data: rawItem as Types.Comment };
+        }),
+
+      delete: (id: string) =>
+        executeRequest('comment.delete', (ctx) => {
+          // Check RLS before delete
+          const existing = db.comment.findFirst({ where: { id: { equals: id } } }) as unknown as Record<string, unknown> | null;
+          if (!existing) throw createNotFoundError('Comment', id);
+          if (!rlsCommentDelete(existing, ctx)) {
+            throw createRLSError('delete', 'Comment');
+          }
+
+          const item = db.comment.delete({ where: { id: { equals: id } } });
+        }),
     },
 
-    update: async (id: string, input: Types.UserProfileUpdate): Promise<Types.ItemResponse<Types.UserProfile>> => {
-      // Check RLS before update
-      const existing = db.user-profile.findFirst({ where: { id: { equals: id } } }) as unknown as Record<string, unknown> | null;
-      if (!existing) throw new Error('UserProfile not found');
-      const ctx = getContext();
-      if (!rlsUserProfileUpdate(existing, ctx)) {
-        throw new RLSError('update', 'UserProfile');
-      }
+    post-detail: {
+      list: (options?: Types.QueryOptions<Types.PostDetailFilter, never>) =>
+        executeRequest('post-detail.list', (ctx) => {
+          let rawItems = db.post-detail.getAll() as unknown as Record<string, unknown>[];
+          let items = rawItems.map(row => parseRow<Types.PostDetail>(row, ['author', 'comments']));
 
-      const rawItem = db.user-profile.update({
-        where: { id: { equals: id } },
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        data: { ...input, updatedAt: new Date() } as any,
-      }) as unknown as Record<string, unknown> | null;
-      return { data: parseRow<Types.UserProfile>(rawItem!, ['stats', 'recentPosts']) };
+          // Apply RLS filter
+          items = items.filter(item => rlsPostDetailSelect(item as unknown as Record<string, unknown>, ctx));
+
+          if (options?.where) {
+            items = applyFilter(items, options.where);
+          }
+
+          const total = items.length;
+
+          if (options?.orderBy) {
+            const [field, dir] = Object.entries(options.orderBy)[0];
+            items = [...items].sort((a, b) => {
+              const aVal = (a as Record<string, unknown>)[field] as string | number | Date;
+              const bVal = (b as Record<string, unknown>)[field] as string | number | Date;
+              if (aVal < bVal) return dir === 'asc' ? -1 : 1;
+              if (aVal > bVal) return dir === 'asc' ? 1 : -1;
+              return 0;
+            });
+          }
+
+          const limit = options?.limit ?? 20;
+          const offset = options?.offset ?? 0;
+          items = items.slice(offset, offset + limit);
+
+          return { data: items, meta: { total, limit, offset, hasMore: offset + limit < total } };
+        }),
+
+      get: (id: string, options?: { include?: never[] }) =>
+        executeRequest('post-detail.get', (ctx) => {
+          const rawItem = db.post-detail.findFirst({ where: { id: { equals: id } } }) as unknown as Record<string, unknown> | null;
+          if (!rawItem) throw createNotFoundError('PostDetail', id);
+          const item = parseRow<Types.PostDetail>(rawItem, ['author', 'comments']);
+
+          // Apply RLS check
+          if (!rlsPostDetailSelect(item as unknown as Record<string, unknown>, ctx)) {
+            throw createRLSError('select', 'PostDetail');
+          }
+
+          return { data: item };
+        }),
+
+      create: (input: Types.PostDetailCreate) =>
+        executeRequest('post-detail.create', (ctx) => {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const rawItem = db.post-detail.create(input as any) as unknown as Record<string, unknown>;
+          const item = parseRow<Types.PostDetail>(rawItem, ['author', 'comments']);
+
+          // Check RLS on created item
+          if (!rlsPostDetailInsert(item as unknown as Record<string, unknown>, ctx)) {
+            // Rollback by deleting
+            db.post-detail.delete({ where: { id: { equals: item.id } } });
+            throw createRLSError('insert', 'PostDetail');
+          }
+
+          return { data: item };
+        }),
+
+      update: (id: string, input: Types.PostDetailUpdate) =>
+        executeRequest('post-detail.update', (ctx) => {
+          // Check RLS before update
+          const existing = db.post-detail.findFirst({ where: { id: { equals: id } } }) as unknown as Record<string, unknown> | null;
+          if (!existing) throw createNotFoundError('PostDetail', id);
+          if (!rlsPostDetailUpdate(existing, ctx)) {
+            throw createRLSError('update', 'PostDetail');
+          }
+
+          const rawItem = db.post-detail.update({
+            where: { id: { equals: id } },
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            data: { ...input, updatedAt: new Date() } as any,
+          }) as unknown as Record<string, unknown> | null;
+          return { data: parseRow<Types.PostDetail>(rawItem!, ['author', 'comments']) };
+        }),
+
+      delete: (id: string) =>
+        executeRequest('post-detail.delete', (ctx) => {
+          // Check RLS before delete
+          const existing = db.post-detail.findFirst({ where: { id: { equals: id } } }) as unknown as Record<string, unknown> | null;
+          if (!existing) throw createNotFoundError('PostDetail', id);
+          if (!rlsPostDetailDelete(existing, ctx)) {
+            throw createRLSError('delete', 'PostDetail');
+          }
+
+          const item = db.post-detail.delete({ where: { id: { equals: id } } });
+        }),
     },
 
-    delete: async (id: string): Promise<void> => {
-      // Check RLS before delete
-      const existing = db.user-profile.findFirst({ where: { id: { equals: id } } }) as unknown as Record<string, unknown> | null;
-      if (!existing) throw new Error('UserProfile not found');
-      const ctx = getContext();
-      if (!rlsUserProfileDelete(existing, ctx)) {
-        throw new RLSError('delete', 'UserProfile');
-      }
+    user-profile: {
+      list: (options?: Types.QueryOptions<Types.UserProfileFilter, never>) =>
+        executeRequest('user-profile.list', (ctx) => {
+          let rawItems = db.user-profile.getAll() as unknown as Record<string, unknown>[];
+          let items = rawItems.map(row => parseRow<Types.UserProfile>(row, ['stats', 'recentPosts']));
 
-      const item = db.user-profile.delete({ where: { id: { equals: id } } });
+          // Apply RLS filter
+          items = items.filter(item => rlsUserProfileSelect(item as unknown as Record<string, unknown>, ctx));
+
+          if (options?.where) {
+            items = applyFilter(items, options.where);
+          }
+
+          const total = items.length;
+
+          if (options?.orderBy) {
+            const [field, dir] = Object.entries(options.orderBy)[0];
+            items = [...items].sort((a, b) => {
+              const aVal = (a as Record<string, unknown>)[field] as string | number | Date;
+              const bVal = (b as Record<string, unknown>)[field] as string | number | Date;
+              if (aVal < bVal) return dir === 'asc' ? -1 : 1;
+              if (aVal > bVal) return dir === 'asc' ? 1 : -1;
+              return 0;
+            });
+          }
+
+          const limit = options?.limit ?? 20;
+          const offset = options?.offset ?? 0;
+          items = items.slice(offset, offset + limit);
+
+          return { data: items, meta: { total, limit, offset, hasMore: offset + limit < total } };
+        }),
+
+      get: (id: string, options?: { include?: never[] }) =>
+        executeRequest('user-profile.get', (ctx) => {
+          const rawItem = db.user-profile.findFirst({ where: { id: { equals: id } } }) as unknown as Record<string, unknown> | null;
+          if (!rawItem) throw createNotFoundError('UserProfile', id);
+          const item = parseRow<Types.UserProfile>(rawItem, ['stats', 'recentPosts']);
+
+          // Apply RLS check
+          if (!rlsUserProfileSelect(item as unknown as Record<string, unknown>, ctx)) {
+            throw createRLSError('select', 'UserProfile');
+          }
+
+          return { data: item };
+        }),
+
+      create: (input: Types.UserProfileCreate) =>
+        executeRequest('user-profile.create', (ctx) => {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const rawItem = db.user-profile.create(input as any) as unknown as Record<string, unknown>;
+          const item = parseRow<Types.UserProfile>(rawItem, ['stats', 'recentPosts']);
+
+          // Check RLS on created item
+          if (!rlsUserProfileInsert(item as unknown as Record<string, unknown>, ctx)) {
+            // Rollback by deleting
+            db.user-profile.delete({ where: { id: { equals: item.id } } });
+            throw createRLSError('insert', 'UserProfile');
+          }
+
+          return { data: item };
+        }),
+
+      update: (id: string, input: Types.UserProfileUpdate) =>
+        executeRequest('user-profile.update', (ctx) => {
+          // Check RLS before update
+          const existing = db.user-profile.findFirst({ where: { id: { equals: id } } }) as unknown as Record<string, unknown> | null;
+          if (!existing) throw createNotFoundError('UserProfile', id);
+          if (!rlsUserProfileUpdate(existing, ctx)) {
+            throw createRLSError('update', 'UserProfile');
+          }
+
+          const rawItem = db.user-profile.update({
+            where: { id: { equals: id } },
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            data: { ...input, updatedAt: new Date() } as any,
+          }) as unknown as Record<string, unknown> | null;
+          return { data: parseRow<Types.UserProfile>(rawItem!, ['stats', 'recentPosts']) };
+        }),
+
+      delete: (id: string) =>
+        executeRequest('user-profile.delete', (ctx) => {
+          // Check RLS before delete
+          const existing = db.user-profile.findFirst({ where: { id: { equals: id } } }) as unknown as Record<string, unknown> | null;
+          if (!existing) throw createNotFoundError('UserProfile', id);
+          if (!rlsUserProfileDelete(existing, ctx)) {
+            throw createRLSError('delete', 'UserProfile');
+          }
+
+          const item = db.user-profile.delete({ where: { id: { equals: id } } });
+        }),
     },
-  },
 
-};
+  };
+}
+
+/**
+ * Default API client (no interceptors configured).
+ * For production, use createClient() with interceptors instead.
+ * 
+ * @example
+ * ```typescript
+ * // Simple usage (no auth)
+ * const posts = await api.post.list();
+ * 
+ * // For production with auth, use createClient instead:
+ * const api = createClient({
+ *   onRequest: (ctx) => {
+ *     ctx.headers.Authorization = `Bearer ${getToken()}`;
+ *     return ctx;
+ *   }
+ * });
+ * ```
+ */
+export const api = createClient();

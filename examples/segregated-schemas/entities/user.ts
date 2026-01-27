@@ -4,7 +4,7 @@
  * This file ONLY contains the User entity definition.
  * Relations reference other entities by string name.
  */
-import { defineData, field, hasMany } from '../../../src/schema';
+import { defineData, field, hasMany } from 'schemock/schema';
 
 export const User = defineData('user', {
   id: field.uuid(),

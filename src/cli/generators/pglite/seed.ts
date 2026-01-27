@@ -11,6 +11,7 @@
 import type { AnalyzedSchema, AnalyzedField, ProductionSeedConfig } from '../../types';
 import { CodeBuilder } from '../../utils/code-builder';
 import { toSafePropertyName } from '../../utils/pluralize';
+import { emitSeedRefHelpers, emitEntityOrder } from '../shared/seed-ref-helpers';
 
 /**
  * Configuration for seed generation
@@ -438,6 +439,10 @@ function generateProductionSeedUtils(
   });
   code.line();
 
+  // Seed reference resolution helpers (for ref() and lookup() support)
+  emitSeedRefHelpers(code);
+  emitEntityOrder(code, schemas);
+
   // runProductionSeed function
   code.multiDocComment([
     'Run the production seed with secret validation and kill switch.',
@@ -493,22 +498,37 @@ function generateProductionSeedUtils(
   });
   code.line();
 
-  // Step 3: Insert data
-  code.comment('3. Insert data for each entity');
-  code.block('for (const [entity, items] of Object.entries(seedConfig.data)) {', () => {
+  // Step 3: Insert data (ordered, with cross-entity reference resolution)
+  code.comment('3. Insert data for each entity (ordered by dependencies)');
+  code.line('const createdRecords = new Map<string, Record<string, unknown>[]>();');
+  code.line();
+
+  code.comment('Determine insertion order: entityOrder first, then any remaining keys');
+  code.line('const orderedEntities = [');
+  code.line('  ...entityOrder.filter((e) => e in seedConfig.data),');
+  code.line('  ...Object.keys(seedConfig.data).filter((e) => !entityOrder.includes(e)),');
+  code.line('];');
+  code.line();
+
+  code.block('for (const entity of orderedEntities) {', () => {
+    code.line('const items = seedConfig.data[entity];');
     code.line('const tableName = tableNameMap[entity];');
     code.block('if (!tableName) {', () => {
       code.line('console.warn(`Unknown entity in seed data: ${entity}`);');
       code.line('continue;');
     });
     code.line();
+    code.line('const entityRecords: Record<string, unknown>[] = [];');
     code.block('for (const item of items) {', () => {
-      code.comment('Build column names and values');
-      code.line('const columns = Object.keys(item).map(k => `"${k}"`).join(", ");');
-      code.line('const values = Object.values(item).map(v => escapeSQL(v)).join(", ");');
-      code.line();
       code.block('try {', () => {
-        code.line('await db.query(`INSERT INTO "${tableName}" (${columns}) VALUES (${values})`);');
+        code.line('const resolved = resolveItem(item, createdRecords, entity);');
+        code.line();
+        code.comment('Build column names and values from resolved item');
+        code.line('const columns = Object.keys(resolved).map(k => `"${k}"`).join(", ");');
+        code.line('const values = Object.values(resolved).map(v => escapeSQL(v)).join(", ");');
+        code.line();
+        code.line('const result = await db.query<Record<string, unknown>>(`INSERT INTO "${tableName}" (${columns}) VALUES (${values}) RETURNING *`);');
+        code.line('entityRecords.push(result.rows[0]);');
       }, '} catch (e) {');
       code.indent();
       code.comment('Ignore duplicate key errors, log others');
@@ -519,6 +539,7 @@ function generateProductionSeedUtils(
       code.dedent();
       code.line('}');
     });
+    code.line('createdRecords.set(entity, entityRecords);');
   });
   code.line();
 

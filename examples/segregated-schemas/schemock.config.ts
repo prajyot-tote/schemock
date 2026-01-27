@@ -9,7 +9,7 @@
  *
  * All are merged before analysis, so cross-references work.
  */
-import type { SchemockConfig } from '../../src/cli/types';
+import type { SchemockConfig } from 'schemock/cli';
 
 const config: SchemockConfig = {
   // Single glob catches ALL .ts files in all subdirectories
@@ -36,6 +36,11 @@ const config: SchemockConfig = {
       delay: 100,
       persistence: 'memory',
     },
+  },
+
+  // Production seed — one-time seeding with secret validation and kill switch
+  productionSeed: {
+    dataPath: './examples/segregated-schemas/seed-data.ts',
   },
 };
 

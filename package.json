@@ -1,6 +1,6 @@
 {
   "name": "schemock",
-  "version": "0.1.0-alpha.9",
+  "version": "0.1.0-alpha.10",
   "description": "Schema-first code generation for frontend developers. Generate TypeScript types, API clients, React hooks, Next.js routes, and Node.js handlers from a single schema.",
   "keywords": [
     "schema",
@@ -71,6 +71,11 @@
       "types": "./dist/cli/index.d.ts",
       "import": "./dist/cli/index.mjs",
       "require": "./dist/cli/index.js"
+    },
+    "./seed": {
+      "types": "./dist/seed/index.d.ts",
+      "import": "./dist/seed/index.mjs",
+      "require": "./dist/seed/index.js"
     }
   },
   "bin": {
@@ -91,7 +96,8 @@
     "test:coverage": "vitest run --coverage",
     "lint": "eslint src",
     "typecheck": "tsc --noEmit",
-    "prepublishOnly": "npm run build"
+    "verify-dist": "node scripts/verify-dist.mjs",
+    "prepublishOnly": "npm run build && npm run verify-dist"
   },
   "peerDependencies": {
     "@electric-sql/pglite": "^0.3.0",

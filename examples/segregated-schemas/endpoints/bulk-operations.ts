@@ -4,7 +4,7 @@
  * Multiple endpoints in one file, all operating on entities
  * defined in a different directory.
  */
-import { defineEndpoint, field } from '../../../src/schema';
+import { defineEndpoint, field } from 'schemock/schema';
 
 /**
  * Bulk delete posts

@@ -3,26 +3,155 @@
 // 
 // These resolvers are copied from your defineEndpoint() calls.
 // They receive { params, body, db, headers } and return the response.
+// 
+// NOTE: If your inline resolvers use external functions (e.g., hashPassword, generateToken),
+// consider using named exported functions instead - they will be automatically imported.
 
-import type { MockResolverContext } from 'schemock/schema';
+import type { Database } from './db';
+import type * as Types from './types';
 
-type ResolverFn = (ctx: MockResolverContext) => unknown | Promise<unknown>;
+// Base resolver context with typed database access
+export interface ResolverContext<TParams = Record<string, unknown>, TBody = Record<string, unknown>> {
+  params: TParams;
+  body: TBody;
+  db: Database;
+  headers: Record<string, string>;
+}
 
-export const endpointResolvers: Record<string, ResolverFn> = {
+// Per-endpoint typed resolver contexts
+export type PostsBulkDeleteResolverContext = ResolverContext<Record<string, never>, Types.PostsBulkDeleteBody>;
+export type PostsBulkPublishResolverContext = ResolverContext<Record<string, never>, Types.PostsBulkPublishBody>;
+export type UsersByUserIdStatsResolverContext = ResolverContext<Types.UsersByUserIdStatsParams, Record<string, never>>;
+export type SearchResolverContext = ResolverContext<Types.SearchParams, Record<string, never>>;
+
+// Error class for HTTP errors in resolvers
+export class HttpError extends Error {
+  readonly status: number;
+  readonly code?: string;
+
+  constructor(message: string, status: number, code?: string) {
+    super(message);
+    this.name = "HttpError";
+    this.status = status;
+    this.code = code;
+  }
+}
+
+
+// Typed resolver function types
+type PostsBulkDeleteResolverFn = (ctx: PostsBulkDeleteResolverContext) => Types.PostsBulkDeleteResponse | Promise<Types.PostsBulkDeleteResponse>;
+type PostsBulkPublishResolverFn = (ctx: PostsBulkPublishResolverContext) => Types.PostsBulkPublishResponse | Promise<Types.PostsBulkPublishResponse>;
+type UsersByUserIdStatsResolverFn = (ctx: UsersByUserIdStatsResolverContext) => Types.UsersByUserIdStatsResponse | Promise<Types.UsersByUserIdStatsResponse>;
+type SearchResolverFn = (ctx: SearchResolverContext) => Types.SearchResponse | Promise<Types.SearchResponse>;
+
+// Typed endpoint resolvers interface
+export interface EndpointResolvers {
+  postsBulkDelete: PostsBulkDeleteResolverFn;
+  postsBulkPublish: PostsBulkPublishResolverFn;
+  usersByUserIdStats: UsersByUserIdStatsResolverFn;
+  search: SearchResolverFn;
+}
+
+export const endpointResolvers: EndpointResolvers = {
   // POST /api/posts/bulk-delete
   // Delete multiple posts at once
-  postsBulkDelete: async({body,db})=>{let deleted=0;const failed=[];for(const id of body.ids){try{const result=db.post.delete({where:{id:{equals:id}}});if(result){deleted++}else{failed.push(id)}}catch{failed.push(id)}}return{deleted,failed}},
+  postsBulkDelete: async ({ body, db }: PostsBulkDeleteResolverContext) => {
+    let deleted = 0;
+    const failed           = [];
+
+    for (const id of body.ids) {
+      try {
+        const result = db.post.delete({ where: { id: { equals: id } } });
+        if (result) {
+          deleted++;
+        } else {
+          failed.push(id);
+        }
+      } catch {
+        failed.push(id);
+      }
+    }
+
+    return { deleted, failed };
+  },
 
   // POST /api/posts/bulk-publish
   // Publish multiple posts at once
-  postsBulkPublish: async({body,db})=>{let updated=0;for(const id of body.ids){const result=db.post.update({where:{id:{equals:id}},data:{published:body.published}});if(result)updated++}return{updated}},
+  postsBulkPublish: async ({ body, db }: PostsBulkPublishResolverContext) => {
+    let updated = 0;
+
+    for (const id of body.ids) {
+      const result = db.post.update({
+        where: { id: { equals: id } },
+        data: { published: body.published },
+      });
+      if (result) updated++;
+    }
+
+    return { updated };
+  },
 
   // GET /api/users/:userId/stats
   // Get statistics for a user
-  usersByUserIdStats: async({params,db})=>{const posts=db.post.findMany({where:{authorId:{equals:params.userId}}});const comments=db.comment.findMany({where:{userId:{equals:params.userId}}});return{postCount:posts.length,commentCount:comments.length,totalViews:posts.reduce((sum,p)=>sum+(p.views||0),0),publishedPosts:posts.filter(p=>p.published).length}},
+  usersByUserIdStats: async ({ params, db }: UsersByUserIdStatsResolverContext) => {
+    // Access user, post, and comment - all from different files
+    const posts = db.post.findMany({
+      where: { authorId: { equals: params.userId } },
+    });
+
+    const comments = db.comment.findMany({
+      where: { userId: { equals: params.userId } },
+    });
+
+    return {
+      postCount: posts.length,
+      commentCount: comments.length,
+      totalViews: posts.reduce((sum        , p     ) => sum + (p.views || 0), 0),
+      publishedPosts: posts.filter((p     ) => p.published).length,
+    };
+  },
 
   // GET /api/search
   // Search across users and posts
-  search: async({params,db})=>{const results={users:[],posts:[],total:0};const query=params.q?.toLowerCase()??"";if(params.type==="all"||params.type==="user"){const users=db.user.findMany({where:{name:{contains:query}},take:params.limit});results.users=users.map(u=>({id:u.id,name:u.name,email:u.email}))}if(params.type==="all"||params.type==="post"){const posts=db.post.findMany({where:{title:{contains:query}},take:params.limit});results.posts=posts.map(p=>{const author=db.user.findFirst({where:{id:{equals:p.authorId}}});return{id:p.id,title:p.title,authorName:author?.name??"Unknown"}})}results.total=results.users.length+results.posts.length;return results},
+  search: async ({ params, db }: SearchResolverContext) => {
+    const results = { users: []         , posts: []         , total: 0 };
+    const query = params.q?.toLowerCase() ?? '';
+
+    if (params.type === 'all' || params.type === 'user') {
+      // db.user is available even though User is in entities/user.ts
+      const users = db.user.findMany({
+        where: {
+          name: { contains: query },
+        },
+        take: params.limit,
+      });
+      results.users = users.map((u     ) => ({
+        id: u.id,
+        name: u.name,
+        email: u.email,
+      }));
+    }
+
+    if (params.type === 'all' || params.type === 'post') {
+      // db.post is available even though Post is in entities/post.ts
+      const posts = db.post.findMany({
+        where: {
+          title: { contains: query },
+        },
+        take: params.limit,
+      });
+      results.posts = posts.map((p     ) => {
+        const author = db.user.findFirst({ where: { id: { equals: p.authorId } } });
+        return {
+          id: p.id,
+          title: p.title,
+          authorName: author?.name ?? 'Unknown',
+        };
+      });
+    }
+
+    results.total = results.users.length + results.posts.length;
+    return results;
+  },
 
 };

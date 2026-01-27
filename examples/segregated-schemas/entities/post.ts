@@ -4,7 +4,7 @@
  * This file ONLY contains the Post entity definition.
  * belongsTo references User which is in a DIFFERENT file.
  */
-import { defineData, field, belongsTo, hasMany } from '../../../src/schema';
+import { defineData, field, belongsTo, hasMany } from 'schemock/schema';
 
 export const Post = defineData('post', {
   id: field.uuid(),

@@ -11,6 +11,7 @@
 import type { AnalyzedSchema, AnalyzedField, ProductionSeedConfig } from '../../types';
 import { CodeBuilder } from '../../utils/code-builder';
 import { toSafePropertyName } from '../../utils/pluralize';
+import { emitSeedRefHelpers, emitEntityOrder } from '../shared/seed-ref-helpers';
 
 /**
  * Configuration for seed generation
@@ -399,6 +400,10 @@ function generateProductionSeedUtils(
   });
   code.line();
 
+  // Seed reference resolution helpers (for ref() and lookup() support)
+  emitSeedRefHelpers(code);
+  emitEntityOrder(code, schemas);
+
   // runProductionSeed function
   code.multiDocComment([
     'Run the production seed with secret validation and kill switch.',
@@ -454,9 +459,20 @@ function generateProductionSeedUtils(
   });
   code.line();
 
-  // Step 3: Insert data
-  code.comment('3. Insert data for each entity');
-  code.block('for (const [entity, items] of Object.entries(seedConfig.data)) {', () => {
+  // Step 3: Insert data (ordered, with cross-entity reference resolution)
+  code.comment('3. Insert data for each entity (ordered by dependencies)');
+  code.line('const createdRecords = new Map<string, Record<string, unknown>[]>();');
+  code.line();
+
+  code.comment('Determine insertion order: entityOrder first, then any remaining keys');
+  code.line('const orderedEntities = [');
+  code.line('  ...entityOrder.filter((e) => e in seedConfig.data),');
+  code.line('  ...Object.keys(seedConfig.data).filter((e) => !entityOrder.includes(e)),');
+  code.line('];');
+  code.line();
+
+  code.block('for (const entity of orderedEntities) {', () => {
+    code.line('const items = seedConfig.data[entity];');
     code.comment('Get the db method for this entity');
     code.line('// eslint-disable-next-line @typescript-eslint/no-explicit-any');
     code.line('const entityDb = (db as any)[entity];');
@@ -465,9 +481,12 @@ function generateProductionSeedUtils(
       code.line('continue;');
     });
     code.line();
+    code.line('const entityRecords: Record<string, unknown>[] = [];');
     code.block('for (const item of items) {', () => {
       code.block('try {', () => {
-        code.line('entityDb.create(item);');
+        code.line('const resolved = resolveItem(item, createdRecords, entity);');
+        code.line('const created = entityDb.create(resolved);');
+        code.line('entityRecords.push(created);');
       }, '} catch (e) {');
       code.indent();
       code.comment('Ignore duplicate key errors, log others');
@@ -478,6 +497,7 @@ function generateProductionSeedUtils(
       code.dedent();
       code.line('}');
     });
+    code.line('createdRecords.set(entity, entityRecords);');
   });
   code.line();
 
