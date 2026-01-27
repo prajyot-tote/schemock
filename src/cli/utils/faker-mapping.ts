@@ -75,6 +75,7 @@ const defaultMappings: FakerMapping[] = [
   { hint: 'color.human', call: 'faker.color.human()' },
 
   // By hint - Date
+  { hint: 'date.anytime', call: 'faker.date.recent()' },
   { hint: 'date.past', call: 'faker.date.past()' },
   { hint: 'date.future', call: 'faker.date.future()' },
   { hint: 'date.recent', call: 'faker.date.recent()' },
@@ -177,10 +178,16 @@ export function fieldToFakerCall(
     if (match) return match.call;
   }
 
-  // Try field name pattern
-  for (const mapping of mappings) {
-    if (mapping.fieldName && mapping.fieldName.test(fieldName)) {
-      return mapping.call;
+  // Try field name pattern — only for string-compatible types.
+  // Non-string types (number, date, boolean, etc.) must use type-based generation;
+  // name patterns produce string faker calls that cause type mismatches
+  // (e.g. "hourly" matching /url/i → faker.internet.url() on a date field).
+  const STRING_TYPES = new Set(['string', 'text', 'email', 'url']);
+  if (!field.type || STRING_TYPES.has(field.type)) {
+    for (const mapping of mappings) {
+      if (mapping.fieldName && mapping.fieldName.test(fieldName)) {
+        return mapping.call;
+      }
     }
   }
 

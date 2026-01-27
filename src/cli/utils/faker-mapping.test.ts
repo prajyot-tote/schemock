@@ -2,9 +2,11 @@
  * Unit tests for fieldToFakerCall() — verifying that field type
  * takes precedence over field name pattern matching.
  *
- * Regression test for: field.number() named "tokenLimit" was generating
- * faker.string.alphanumeric(32) instead of faker.number.int() because
- * the /token|key|secret/i name pattern matched before the type check.
+ * Regression tests:
+ * 1. field.number() named "tokenLimit" generating faker.string.alphanumeric(32)
+ *    instead of faker.number.int() — /token|key|secret/i matched before type check.
+ * 2. field.date() named "resetHourlyAt" generating faker.internet.url()
+ *    instead of faker.date.recent() — "hourly" contains "url" substring.
  */
 
 import { describe, it, expect } from 'vitest';
@@ -19,9 +21,6 @@ const defaultConfig: SchemockConfig = {
   apiPrefix: '/api',
 };
 
-/**
- * Helper to build a FieldDefinition matching what field.number() produces.
- */
 function numberField(opts?: { min?: number; max?: number }): FieldDefinition {
   const constraints: Record<string, number> = {};
   if (opts?.min !== undefined) constraints.min = opts.min;
@@ -33,15 +32,20 @@ function numberField(opts?: { min?: number; max?: number }): FieldDefinition {
   };
 }
 
-/**
- * Helper to build a FieldDefinition matching what field.string() produces.
- */
 function stringField(): FieldDefinition {
   return { type: 'string' };
 }
 
+function dateField(hint = 'date.anytime'): FieldDefinition {
+  return { type: 'date', hint };
+}
+
+function booleanField(): FieldDefinition {
+  return { type: 'boolean', hint: 'datatype.boolean' };
+}
+
 describe('fieldToFakerCall', () => {
-  describe('type precedence over name pattern (regression)', () => {
+  describe('type precedence over name pattern — numbers (regression)', () => {
     it('field.number() named "tokenLimit" → faker.number, not faker.string', () => {
       const result = fieldToFakerCall('tokenLimit', numberField(), defaultConfig);
       expect(result).toMatch(/faker\.number/);
@@ -58,6 +62,33 @@ describe('fieldToFakerCall', () => {
       const result = fieldToFakerCall('apiKeyCount', numberField(), defaultConfig);
       expect(result).toMatch(/faker\.number/);
       expect(result).not.toMatch(/faker\.string\.alphanumeric/);
+    });
+  });
+
+  describe('type precedence over name pattern — dates (regression)', () => {
+    it('field.date() named "resetHourlyAt" → faker.date, not faker.internet.url', () => {
+      const result = fieldToFakerCall('resetHourlyAt', dateField(), defaultConfig);
+      expect(result).toMatch(/faker\.date/);
+      expect(result).not.toMatch(/faker\.internet\.url/);
+    });
+
+    it('field.date() named "hourlyCheckAt" → faker.date, not faker.internet.url', () => {
+      const result = fieldToFakerCall('hourlyCheckAt', dateField(), defaultConfig);
+      expect(result).toMatch(/faker\.date/);
+      expect(result).not.toMatch(/faker\.internet\.url/);
+    });
+
+    it('field.date() named "resetDailyAt" → faker.date (control, no pattern conflict)', () => {
+      const result = fieldToFakerCall('resetDailyAt', dateField(), defaultConfig);
+      expect(result).toMatch(/faker\.date/);
+    });
+  });
+
+  describe('type precedence over name pattern — booleans', () => {
+    it('field.boolean() named "isUrlEnabled" → faker.datatype.boolean, not faker.internet.url', () => {
+      const result = fieldToFakerCall('isUrlEnabled', booleanField(), defaultConfig);
+      expect(result).toMatch(/faker\.datatype\.boolean/);
+      expect(result).not.toMatch(/faker\.internet\.url/);
     });
   });
 

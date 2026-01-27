@@ -107,14 +107,19 @@ function createTestSchemas() {
   });
 
   // Adversarial schema: field type vs name pattern conflicts
-  // Tests that field.number() named "tokenLimit" generates faker.number.int(),
-  // NOT faker.string.alphanumeric(32) from the /token|key|secret/i name pattern.
+  // Tests that non-string types with names matching string-oriented patterns
+  // still generate type-correct faker calls:
+  //   - field.number() named "tokenLimit" → faker.number.int(), NOT faker.string.alphanumeric(32)
+  //   - field.date() named "resetHourlyAt" → faker.date.recent(), NOT faker.internet.url()
   const tokenUsageSchema = defineData('tokenUsage', {
     id: field.uuid(),
     tokenLimit: field.number().default(100000),              // number + "token" name
     apiKeyCount: field.number(),                              // number + "key" name
     secretCode: field.number({ min: 1000, max: 9999 }),       // number + "secret" name
     tokenName: field.string(),                                // string + "token" name (control: name pattern is valid here)
+    resetHourlyAt: field.date().nullable(),                   // date + name containing "url" substring
+    resetDailyAt: field.date().nullable(),                    // date control (no pattern conflict)
+    isUrlEnabled: field.boolean().default(false),             // boolean + "url" name
     createdAt: field.date().readOnly(),
   });
 
