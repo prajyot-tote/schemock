@@ -1115,18 +1115,29 @@ Schemock supports one-time production seeding for default data (super admin user
 
 ```typescript
 // src/seed-data.ts
+import { ref, lookup } from 'schemock/seed';
+
 export const seedConfig = {
   secret: 'my-production-secret-123',  // Validated at runtime
   data: {
     users: [
-      { id: 'admin-uuid', name: 'Super Admin', email: 'admin@example.com', role: 'admin' }
+      { name: 'Super Admin', email: 'admin@example.com', role: 'admin' },
+      { name: 'Default Editor', email: 'editor@example.com', role: 'user' },
     ],
-    products: [
-      { id: 'prod-1', name: 'Default Product', price: 9.99 }
+    posts: [
+      {
+        title: 'Welcome Post',
+        content: 'Hello world!',
+        // Reference the first user's ID (index 0)
+        authorId: ref('users', 0),
+        published: true,
+      },
     ],
   },
 };
 ```
+
+> **Note:** You don't need to hardcode IDs. Use `ref()` and `lookup()` to reference records created earlier in the seed. See [Cross-Entity References](#cross-entity-references-ref--lookup) below.
 
 ### 2. Run Production Seed
 
@@ -1147,6 +1158,68 @@ if (result.success) {
   console.error('Invalid secret key');
 }
 ```
+
+### Cross-Entity References (`ref` & `lookup`)
+
+When seeding related data, you often need to reference records created earlier (e.g., a post needs its author's ID). The `ref()` and `lookup()` helpers from `schemock/seed` solve this without hardcoding IDs.
+
+#### `ref(entity, index, field?)`
+
+Reference the N-th created record of an entity. Default field is `'id'`.
+
+```typescript
+import { ref } from 'schemock/seed';
+
+export const seedConfig = {
+  secret: 'my-secret',
+  data: {
+    users: [
+      { name: 'Admin', email: 'admin@example.com', role: 'admin' },   // index 0
+      { name: 'Editor', email: 'editor@example.com', role: 'user' },  // index 1
+    ],
+    posts: [
+      { title: 'Admin Post', authorId: ref('users', 0) },   // → Admin's ID
+      { title: 'Editor Post', authorId: ref('users', 1) },  // → Editor's ID
+    ],
+  },
+};
+```
+
+#### `lookup(entity, where, field?)`
+
+Find a previously created record by matching field values. Default field is `'id'`.
+
+```typescript
+import { ref, lookup } from 'schemock/seed';
+
+export const seedConfig = {
+  secret: 'my-secret',
+  data: {
+    users: [
+      { name: 'Admin', email: 'admin@example.com', role: 'admin' },
+    ],
+    permissions: [
+      { key: 'projects:read:all', label: 'Read All Projects' },
+    ],
+    rolePermissions: [
+      {
+        // Find user where role === 'admin', get their ID
+        userId: lookup('users', { role: 'admin' }),
+        // Find permission where key matches, get its ID
+        permissionId: lookup('permissions', { key: 'projects:read:all' }),
+      },
+    ],
+  },
+};
+```
+
+#### Insertion Order
+
+Entities are inserted in **dependency order** (topologically sorted based on your schema's foreign key relationships). Parent entities are always seeded before children. If you reference an entity that hasn't been seeded yet, you'll get a descriptive error.
+
+#### Backward Compatibility
+
+Existing seed data with hardcoded IDs continues to work unchanged. The `ref()` and `lookup()` helpers are optional.
 
 ### Available Functions
 
@@ -1722,6 +1795,9 @@ const users = await api.user.list();
 ```typescript
 // Schema definition
 import { defineData, defineView, defineEndpoint, field, hasMany, belongsTo } from 'schemock/schema';
+
+// Seed helpers (cross-entity references for production seeding)
+import { ref, lookup } from 'schemock/seed';
 
 // React hooks
 import { useData, useMutate, useView, DataLayerProvider } from 'schemock/react';

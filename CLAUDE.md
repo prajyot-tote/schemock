@@ -57,6 +57,7 @@ schemock/
 │   ├── middleware/      # Auth, Retry, Cache, Logger
 │   ├── react/           # React hooks utilities
 │   ├── runtime/         # Setup, seed utilities
+│   ├── seed/            # Production seed helpers (ref, lookup)
 │   ├── security/        # RLS utilities
 │   └── storage/         # Storage drivers (memory, localStorage)
 ├── package.json
@@ -93,6 +94,9 @@ Session files in `.claude/sessions/schemock/`:
 ```typescript
 // Schema definition
 import { defineData, field, hasMany, belongsTo } from 'schemock/schema';
+
+// Seed helpers (cross-entity references for production seeding)
+import { ref, lookup } from 'schemock/seed';
 
 // React hooks (from generated code)
 import { useUsers, useCreateUser } from './generated';
@@ -419,14 +423,22 @@ Schemock supports one-time production seeding with secret validation and a kill 
 
 ```typescript
 // src/seed-data.ts
+import { ref, lookup } from 'schemock/seed';
+
 export const seedConfig = {
   secret: 'my-production-secret-123',
   data: {
     users: [
-      { id: 'admin-uuid', name: 'Super Admin', email: 'admin@example.com', role: 'admin' }
+      { name: 'Super Admin', email: 'admin@example.com', role: 'admin' },
+      { name: 'Default Editor', email: 'editor@example.com', role: 'user' },
     ],
-    products: [
-      { id: 'prod-1', name: 'Default Product', price: 9.99 }
+    posts: [
+      {
+        title: 'Welcome Post',
+        content: 'Hello world!',
+        authorId: ref('users', 0),  // References first user's ID
+        published: true,
+      },
     ],
   },
 };
@@ -452,6 +464,40 @@ if (result.success) {
 }
 ```
 
+### Cross-Entity References (`ref` & `lookup`)
+
+Use `ref()` and `lookup()` from `schemock/seed` to reference records created earlier in the seed, avoiding hardcoded IDs.
+
+- **`ref(entity, index, field?)`** — Reference the N-th created record's field (default: `'id'`)
+- **`lookup(entity, where, field?)`** — Find a record matching `where` conditions, extract field (default: `'id'`)
+
+```typescript
+import { ref, lookup } from 'schemock/seed';
+
+export const seedConfig = {
+  secret: 'my-secret',
+  data: {
+    users: [
+      { name: 'Admin', email: 'admin@example.com', role: 'admin' },
+    ],
+    permissions: [
+      { key: 'projects:read:all', label: 'Read All Projects' },
+    ],
+    posts: [
+      { title: 'Welcome', authorId: ref('users', 0) },
+    ],
+    rolePermissions: [
+      {
+        userId: lookup('users', { role: 'admin' }),
+        permissionId: lookup('permissions', { key: 'projects:read:all' }),
+      },
+    ],
+  },
+};
+```
+
+Entities are inserted in dependency order (topologically sorted). Forward references throw descriptive errors. Existing seed data with hardcoded IDs continues to work unchanged.
+
 ### Available Functions
 
 | Function | Mock Adapter | PGlite Adapter | Description |
@@ -460,6 +506,15 @@ if (result.success) {
 | `resetProductionSeed()` | sync | async | Clear kill switch for re-seeding |
 | `getSeededAt()` | sync | async | Get timestamp when seeded |
 | `runProductionSeed(secret, config)` | async | async | Run seed with validation |
+
+### Seed Helpers (`schemock/seed`)
+
+| Export | Description |
+|--------|-------------|
+| `ref(entity, index, field?)` | Reference N-th created record (default field: `'id'`) |
+| `lookup(entity, where, field?)` | Find record by field match (default field: `'id'`) |
+| `isSeedReference(value)` | Check if a value is a seed reference marker |
+| `SEED_REF_BRAND` | Brand symbol used for runtime detection |
 
 ### Kill Switch Storage
 
