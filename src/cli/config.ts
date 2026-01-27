@@ -226,6 +226,13 @@ const GenerationTargetSchema = z.object({
 }).strict();
 
 /**
+ * Zod schema for ProductionSeedConfig validation
+ */
+const ProductionSeedConfigSchema = z.object({
+  dataPath: z.string().optional(),
+}).strict();
+
+/**
  * Zod schema for complete SchemockConfig validation
  *
  * Uses .strict() on nested objects to catch typos in config keys
@@ -250,6 +257,7 @@ const SchemockConfigSchema = z.object({
   frontend: FrontendConfigSchema.optional(),
   backend: BackendConfigSchema.optional(),
   middleware: MiddlewareConfigSchema.optional(),
+  productionSeed: ProductionSeedConfigSchema.optional(),
 }).strict();
 
 /**
