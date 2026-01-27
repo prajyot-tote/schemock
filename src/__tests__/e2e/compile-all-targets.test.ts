@@ -106,7 +106,19 @@ function createTestSchemas() {
     createdAt: field.date().readOnly(),
   });
 
-  return [userSchema, profileSchema, postSchema, commentSchema];
+  // Adversarial schema: field type vs name pattern conflicts
+  // Tests that field.number() named "tokenLimit" generates faker.number.int(),
+  // NOT faker.string.alphanumeric(32) from the /token|key|secret/i name pattern.
+  const tokenUsageSchema = defineData('tokenUsage', {
+    id: field.uuid(),
+    tokenLimit: field.number().default(100000),              // number + "token" name
+    apiKeyCount: field.number(),                              // number + "key" name
+    secretCode: field.number({ min: 1000, max: 9999 }),       // number + "secret" name
+    tokenName: field.string(),                                // string + "token" name (control: name pattern is valid here)
+    createdAt: field.date().readOnly(),
+  });
+
+  return [userSchema, profileSchema, postSchema, commentSchema, tokenUsageSchema];
 }
 
 /**
@@ -431,7 +443,8 @@ import type {
   User, UserCreate, UserUpdate,
   Post, PostCreate, PostUpdate,
   Comment, CommentCreate, CommentUpdate,
-  Profile, ProfileCreate, ProfileUpdate
+  Profile, ProfileCreate, ProfileUpdate,
+  Tokenusage, TokenusageCreate, TokenusageUpdate
 } from './types';
 
 export interface ApiClient {
@@ -461,6 +474,13 @@ export interface ApiClient {
     get: (id: string) => Promise<Profile>;
     create: (data: ProfileCreate) => Promise<Profile>;
     update: (id: string, data: ProfileUpdate) => Promise<Profile>;
+    delete: (id: string) => Promise<void>;
+  };
+  tokenUsage: {
+    list: (opts?: { limit?: number; offset?: number }) => Promise<{ data: Tokenusage[]; meta: { total: number } }>;
+    get: (id: string) => Promise<Tokenusage>;
+    create: (data: TokenusageCreate) => Promise<Tokenusage>;
+    update: (id: string, data: TokenusageUpdate) => Promise<Tokenusage>;
     delete: (id: string) => Promise<void>;
   };
 }

@@ -162,6 +162,17 @@ export function fieldToFakerCall(
 
   // Try hint first (highest priority)
   if (field.hint) {
+    // Number hints: use constraint-aware generation to respect min/max from schema
+    if (field.hint === 'number.int') {
+      const min = field.constraints?.min ?? 1;
+      const max = field.constraints?.max ?? 1000;
+      return `faker.number.int({ min: ${min}, max: ${max} })`;
+    }
+    if (field.hint === 'number.float') {
+      const min = field.constraints?.min ?? 0;
+      const max = field.constraints?.max ?? 1000;
+      return `faker.number.float({ min: ${min}, max: ${max}, fractionDigits: 2 })`;
+    }
     const match = mappings.find((m) => m.hint === field.hint);
     if (match) return match.call;
   }
