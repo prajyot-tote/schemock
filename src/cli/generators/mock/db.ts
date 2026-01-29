@@ -218,13 +218,20 @@ function generateEntityFactory(code: CodeBuilder, schema: AnalyzedSchema): void 
     for (const field of schema.fields) {
       if (field.name === 'id') {
         code.line('id: primaryKey(faker.string.uuid),');
-      } else if (field.isArray || field.isObject) {
-        // @mswjs/data only accepts primitives - serialize arrays/objects as JSON strings
+      } else if (field.isObject) {
+        // @mswjs/data doesn't support nested objects - serialize as JSON strings
         // They'll be parsed back when read from the API
         if (field.nullable) {
           code.line(`${field.name}: nullable(() => JSON.stringify(${field.fakerCall})),`);
         } else {
           code.line(`${field.name}: () => JSON.stringify(${field.fakerCall}),`);
+        }
+      } else if (field.isArray) {
+        // @mswjs/data supports arrays of primitives (strings, numbers, booleans)
+        if (field.nullable) {
+          code.line(`${field.name}: nullable(() => ${field.fakerCall}),`);
+        } else {
+          code.line(`${field.name}: () => ${field.fakerCall},`);
         }
       } else if (field.nullable) {
         code.line(`${field.name}: nullable(() => ${field.fakerCall}),`);
