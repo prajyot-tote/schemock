@@ -163,6 +163,13 @@ export function generateEndpointClient(endpoints: AnalyzedEndpoint[]): string {
 function generateClientMethod(code: CodeBuilder, endpoint: AnalyzedEndpoint): void {
   const { name, pascalName, method, path, params, body, pathParams } = endpoint;
 
+  // Determine if this is a method that typically sends a body
+  const isBodyMethod = ['POST', 'PUT', 'PATCH'].includes(method);
+
+  // For POST/PUT/PATCH without explicit body, non-path params should be sent as body
+  const nonPathParams = params.filter((p) => !pathParams.includes(p.name));
+  const shouldSendParamsAsBody = isBodyMethod && body.length === 0 && nonPathParams.length > 0;
+
   // Build function signature
   const args: string[] = [];
   if (params.length > 0) {
@@ -203,14 +210,32 @@ function generateClientMethod(code: CodeBuilder, endpoint: AnalyzedEndpoint): vo
 
       code.line('const response = await fetch(url.toString());');
     } else if (body.length > 0) {
-      // POST/PUT/PATCH with body
+      // POST/PUT/PATCH with explicit body
       code.line(`const response = await fetch(${urlExpr}, {`);
       code.line(`  method: '${method}',`);
       code.line("  headers: { 'Content-Type': 'application/json' },");
       code.line('  body: JSON.stringify(body),');
       code.line('});');
+    } else if (shouldSendParamsAsBody) {
+      // POST/PUT/PATCH with params but no body - send non-path params as body
+      if (pathParams.length > 0) {
+        // Extract non-path params to send as body
+        code.line('const { ' + pathParams.join(', ') + ', ...bodyParams } = params;');
+        code.line(`const response = await fetch(${urlExpr}, {`);
+        code.line(`  method: '${method}',`);
+        code.line("  headers: { 'Content-Type': 'application/json' },");
+        code.line('  body: JSON.stringify(bodyParams),');
+        code.line('});');
+      } else {
+        // No path params - send all params as body
+        code.line(`const response = await fetch(${urlExpr}, {`);
+        code.line(`  method: '${method}',`);
+        code.line("  headers: { 'Content-Type': 'application/json' },");
+        code.line('  body: JSON.stringify(params),');
+        code.line('});');
+      }
     } else {
-      // Simple request without body
+      // Simple request without body (DELETE, or methods with only path params)
       code.line(`const response = await fetch(${urlExpr}, { method: '${method}' });`);
     }
 
@@ -309,6 +334,13 @@ function generateHandler(code: CodeBuilder, endpoint: AnalyzedEndpoint): void {
   const hasBody = body.length > 0;
   const hasParams = params.length > 0 || pathParams.length > 0;
 
+  // Determine if this is a method that typically sends a body
+  const isBodyMethod = ['POST', 'PUT', 'PATCH'].includes(method);
+
+  // For POST/PUT/PATCH without explicit body, non-path params should come from request body
+  const nonPathParams = params.filter((p) => !pathParams.includes(p.name));
+  const shouldParseBodyAsParams = isBodyMethod && !hasBody && nonPathParams.length > 0;
+
   code.comment(`${method} ${path}`);
   code.block(`http.${httpMethod}('${path}', async ({ request, params: pathParams }) => {`, () => {
     // Parse query parameters for GET
@@ -325,6 +357,21 @@ function generateHandler(code: CodeBuilder, endpoint: AnalyzedEndpoint): void {
           }
         }
       }, '};');
+      code.line();
+    } else if (shouldParseBodyAsParams) {
+      // POST/PUT/PATCH with params but no body - parse request body as params
+      code.line('const requestBody = await request.json();');
+      if (pathParams.length > 0) {
+        // Combine path params with body params
+        code.block('const params = {', () => {
+          for (const paramName of pathParams) {
+            code.line(`${paramName}: pathParams.${paramName} as string,`);
+          }
+          code.line('...requestBody,');
+        }, '};');
+      } else {
+        code.line('const params = requestBody;');
+      }
       code.line();
     } else if (pathParams.length > 0) {
       // Only path params, no query params
@@ -343,6 +390,9 @@ function generateHandler(code: CodeBuilder, endpoint: AnalyzedEndpoint): void {
     // Parse body for POST/PUT/PATCH, or provide empty object for GET
     if (hasBody) {
       code.line('const body = await request.json();');
+    } else if (shouldParseBodyAsParams) {
+      // Body was already parsed into params above
+      code.line('const body = {};');
     } else {
       // No body - provide empty object for consistent context
       code.line('const body = {};');
