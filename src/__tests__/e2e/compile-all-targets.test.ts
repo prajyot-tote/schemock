@@ -27,10 +27,15 @@ import { generatePGliteDb, generatePGliteClient } from '../../cli/generators/pgl
 import { generateHooks } from '../../cli/generators/hooks';
 import { generateProvider } from '../../cli/generators/provider';
 import { generateHandlerFile } from '../../cli/generators/node-handlers/handler-template';
+import { generateEndpointHandlerFile as generateNodeEndpointHandler } from '../../cli/generators/node-handlers/endpoint-handler-template';
 import { generateRouterFile } from '../../cli/generators/node-handlers/router-template';
 import { generateHandlerFile as generateNeonHandlerFile } from '../../cli/generators/neon/handler-template';
+import { generateEndpointHandlerFile as generateNeonEndpointHandler } from '../../cli/generators/neon/endpoint-handler-template';
 import { generateRouterFile as generateNeonRouterFile } from '../../cli/generators/neon/router-template';
 import { generateNeonLibFiles } from '../../cli/generators/neon/lib-template';
+import { generateEndpointRouteFile, pathToNextjsSegments } from '../../cli/generators/nextjs-api/endpoint-route-template';
+import { generateEndpointEdgeFunction } from '../../cli/generators/supabase-edge/endpoint-function-template';
+import { generateAllEndpointInterfaces } from '../../cli/generators/shared/endpoint-helpers';
 
 // Import analyzer
 import { analyzeSchemas } from '../../cli/analyze';
@@ -39,7 +44,7 @@ import { analyzeSchemas } from '../../cli/analyze';
 import { defineData, field, belongsTo, hasMany, hasOne } from '../../schema';
 
 // Import types
-import type { AnalyzedSchema, SchemockConfig, GenerationTarget } from '../../cli/types';
+import type { AnalyzedSchema, AnalyzedEndpoint, SchemockConfig, GenerationTarget } from '../../cli/types';
 
 const execAsync = promisify(exec);
 
@@ -70,6 +75,8 @@ function createTestSchemas() {
     name: field.string(),
     role: field.enum(['admin', 'user']).default('user'),
     avatar: field.url().nullable(),
+    permissions: field.array(field.string()),  // Test array of primitives
+    tags: field.array(field.string()).nullable(),  // Test nullable array
     createdAt: field.date().readOnly(),
     updatedAt: field.date().readOnly(),
   });
@@ -124,6 +131,99 @@ function createTestSchemas() {
   });
 
   return [userSchema, profileSchema, postSchema, commentSchema, tokenUsageSchema];
+}
+
+/**
+ * Create test endpoints for endpoint code generation tests
+ */
+function createTestEndpoints(): AnalyzedEndpoint[] {
+  return [
+    {
+      name: 'search',
+      method: 'GET',
+      path: '/api/search',
+      pascalName: 'Search',
+      pathParams: [],
+      params: [
+        { name: 'q', type: 'string', tsType: 'string', required: true, hasDefault: false, isArray: false, isObject: false },
+        { name: 'limit', type: 'number', tsType: 'number', required: false, hasDefault: true, default: 20, isArray: false, isObject: false },
+      ],
+      body: [],
+      response: [
+        { name: 'results', type: 'object', tsType: 'unknown[]', required: true, hasDefault: false, isArray: true, isObject: false,
+          itemType: { name: 'item', type: 'object', tsType: 'unknown', required: true, hasDefault: false, isArray: false, isObject: false } },
+        { name: 'total', type: 'number', tsType: 'number', required: true, hasDefault: false, isArray: false, isObject: false },
+      ],
+      mockResolverSource: 'async () => ({ results: [], total: 0 })',
+      description: 'Search across entities',
+    },
+    {
+      name: 'authLogin',
+      method: 'POST',
+      path: '/api/auth/login',
+      pascalName: 'AuthLogin',
+      pathParams: [],
+      params: [],
+      body: [
+        { name: 'email', type: 'string', tsType: 'string', required: true, hasDefault: false, isArray: false, isObject: false },
+        { name: 'password', type: 'string', tsType: 'string', required: true, hasDefault: false, isArray: false, isObject: false },
+      ],
+      response: [
+        { name: 'token', type: 'string', tsType: 'string', required: true, hasDefault: false, isArray: false, isObject: false },
+        { name: 'user', type: 'object', tsType: '{ id: string; email: string }', required: true, hasDefault: false, isArray: false, isObject: true,
+          shape: [
+            { name: 'id', type: 'string', tsType: 'string', required: true, hasDefault: false, isArray: false, isObject: false },
+            { name: 'email', type: 'string', tsType: 'string', required: true, hasDefault: false, isArray: false, isObject: false },
+          ] },
+      ],
+      mockResolverSource: 'async () => ({ token: "abc", user: { id: "1", email: "a@b.c" } })',
+      description: 'Authenticate a user',
+    },
+    {
+      name: 'userStats',
+      method: 'GET',
+      path: '/api/users/:userId/stats',
+      pascalName: 'UserStats',
+      pathParams: ['userId'],
+      params: [
+        { name: 'userId', type: 'string', tsType: 'string', required: true, hasDefault: false, isArray: false, isObject: false },
+      ],
+      body: [],
+      response: [
+        { name: 'postCount', type: 'number', tsType: 'number', required: true, hasDefault: false, isArray: false, isObject: false },
+        { name: 'commentCount', type: 'number', tsType: 'number', required: true, hasDefault: false, isArray: false, isObject: false },
+      ],
+      mockResolverSource: 'async () => ({ postCount: 0, commentCount: 0 })',
+      description: 'Get user statistics',
+    },
+    // Test endpoint with array params and response (catches array type generation issues)
+    {
+      name: 'inviteUsers',
+      method: 'POST',
+      path: '/api/auth/invite',
+      pascalName: 'InviteUsers',
+      pathParams: [],
+      params: [
+        { name: 'permissions', type: 'array', tsType: 'Array<string>', required: true, hasDefault: false, isArray: true, isObject: false,
+          itemType: { name: 'item', type: 'string', tsType: 'string', required: true, hasDefault: false, isArray: false, isObject: false } },
+        { name: 'reason', type: 'string', tsType: 'string | null', required: false, hasDefault: false, isArray: false, isObject: false },
+      ],
+      body: [
+        { name: 'emails', type: 'array', tsType: 'Array<string>', required: true, hasDefault: false, isArray: true, isObject: false,
+          itemType: { name: 'item', type: 'string', tsType: 'string', required: true, hasDefault: false, isArray: false, isObject: false } },
+        { name: 'organizationId', type: 'string', tsType: 'string', required: true, hasDefault: false, isArray: false, isObject: false },
+      ],
+      response: [
+        { name: 'profileId', type: 'string', tsType: 'string', required: true, hasDefault: false, isArray: false, isObject: false },
+        { name: 'teamMemberId', type: 'string', tsType: 'string', required: true, hasDefault: false, isArray: false, isObject: false },
+        { name: 'permissionMapId', type: 'string', tsType: 'string', required: true, hasDefault: false, isArray: false, isObject: false },
+        { name: 'success', type: 'boolean', tsType: 'boolean', required: true, hasDefault: false, isArray: false, isObject: false },
+        { name: 'isNewUser', type: 'boolean', tsType: 'boolean', required: true, hasDefault: false, isArray: false, isObject: false },
+      ],
+      mockResolverSource: 'async () => ({ profileId: "1", teamMemberId: "2", permissionMapId: "3", success: true, isNewUser: false })',
+      description: 'Invite users to organization',
+    },
+  ];
 }
 
 /**
@@ -656,6 +756,309 @@ export * from './db';
 
       if (!result.success) {
         console.error('Neon target compilation errors:', result.errors);
+      }
+      expect(result.success).toBe(true);
+    }, 30000);
+  });
+
+  describe('Server Targets with Endpoints', () => {
+    let testEndpoints: AnalyzedEndpoint[];
+
+    beforeAll(() => {
+      testEndpoints = createTestEndpoints();
+    });
+
+    it('node-handlers with endpoints compiles', async () => {
+      const dir = await createTempDir('node-handlers-endpoints');
+
+      const target: GenerationTarget = {
+        name: 'node-endpoints',
+        type: 'node-handlers',
+        output: dir,
+        backend: 'supabase',
+      };
+
+      // Generate types
+      const typesCode = generateTypes(analyzedSchemas);
+      await writeFile2(dir, 'types.ts', typesCode);
+
+      // Generate endpoint types
+      const endpointTypesCode = generateAllEndpointInterfaces(testEndpoints);
+      await writeFile2(dir, 'endpoint-types.ts', endpointTypesCode);
+
+      // Generate db.ts stub
+      const dbCode = `
+import { createClient } from '@supabase/supabase-js';
+const supabaseUrl = process.env.SUPABASE_URL!;
+const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
+export const supabase = createClient(supabaseUrl, supabaseKey);
+`;
+      await writeFile2(dir, 'db.ts', dbCode);
+
+      // Generate handlers directory
+      await mkdir(join(dir, 'handlers'), { recursive: true });
+
+      // Generate CRUD handlers
+      for (const schema of analyzedSchemas) {
+        if (schema.isJunctionTable) continue;
+        const handlerCode = generateHandlerFile(schema, target, defaultConfig);
+        await writeFile2(dir, `handlers/${schema.pluralName}.ts`, handlerCode);
+      }
+
+      // Generate endpoint handlers
+      for (const endpoint of testEndpoints) {
+        const handlerCode = generateNodeEndpointHandler(endpoint, target, defaultConfig);
+        await writeFile2(dir, `handlers/${endpoint.name}.ts`, handlerCode);
+      }
+
+      // Generate router with endpoints
+      const routerCode = generateRouterFile(analyzedSchemas, target, defaultConfig, testEndpoints);
+      await writeFile2(dir, 'router.ts', routerCode);
+
+      // Create index barrel
+      const indexCode = `
+export * from './types';
+export * from './endpoint-types';
+export * from './router';
+`;
+      await writeFile2(dir, 'index.ts', indexCode);
+
+      // Create tsconfig
+      await createTsConfig(dir, ['express', 'supabase']);
+
+      // Run compilation
+      const result = await runTsc(dir);
+
+      if (!result.success) {
+        console.error('Node handlers with endpoints compilation errors:', result.errors);
+      }
+      expect(result.success).toBe(true);
+    }, 30000);
+
+    it('neon with endpoints compiles', async () => {
+      const dir = await createTempDir('neon-endpoints');
+
+      const target: GenerationTarget = {
+        name: 'neon-endpoints',
+        type: 'neon',
+        output: dir,
+      };
+
+      // Generate types
+      const typesCode = generateTypes(analyzedSchemas);
+      await writeFile2(dir, 'types.ts', typesCode);
+
+      // Generate endpoint types
+      const endpointTypesCode = generateAllEndpointInterfaces(testEndpoints);
+      await writeFile2(dir, 'endpoint-types.ts', endpointTypesCode);
+
+      // Generate db.ts
+      const libFiles = generateNeonLibFiles(target, defaultConfig);
+      for (const [filename, content] of Object.entries(libFiles)) {
+        await writeFile2(dir, filename, content);
+      }
+
+      // Generate handlers directory
+      await mkdir(join(dir, 'handlers'), { recursive: true });
+
+      // Generate CRUD handlers
+      for (const schema of analyzedSchemas) {
+        if (schema.isJunctionTable) continue;
+        const handlerCode = generateNeonHandlerFile(schema, target, defaultConfig);
+        await writeFile2(dir, `handlers/${schema.pluralName}.ts`, handlerCode);
+      }
+
+      // Generate endpoint handlers
+      for (const endpoint of testEndpoints) {
+        const handlerCode = generateNeonEndpointHandler(endpoint, target, defaultConfig);
+        await writeFile2(dir, `handlers/${endpoint.name}.ts`, handlerCode);
+      }
+
+      // Generate router with endpoints
+      const routerCode = generateNeonRouterFile(analyzedSchemas, target, defaultConfig, testEndpoints);
+      await writeFile2(dir, 'router.ts', routerCode);
+
+      // Create index barrel
+      const indexCode = `
+export * from './types';
+export * from './endpoint-types';
+export * from './router';
+export * from './db';
+`;
+      await writeFile2(dir, 'index.ts', indexCode);
+
+      // Create tsconfig
+      await createTsConfig(dir, ['express', 'neon']);
+
+      // Run compilation
+      const result = await runTsc(dir);
+
+      if (!result.success) {
+        console.error('Neon with endpoints compilation errors:', result.errors);
+      }
+      expect(result.success).toBe(true);
+    }, 30000);
+
+    it('nextjs-api with endpoints compiles', async () => {
+      const dir = await createTempDir('nextjs-api-endpoints');
+
+      const target: GenerationTarget = {
+        name: 'nextjs-endpoints',
+        type: 'nextjs-api',
+        output: dir,
+        backend: 'supabase',
+      };
+
+      // Create _lib directory
+      const libDir = join(dir, '_lib');
+      await mkdir(libDir, { recursive: true });
+
+      // Generate types in _lib
+      const typesCode = generateTypes(analyzedSchemas);
+      await writeFile2(libDir, 'types.ts', typesCode);
+
+      // Generate endpoint types in _lib
+      const endpointTypesCode = generateAllEndpointInterfaces(testEndpoints);
+      await writeFile2(libDir, 'endpoint-types.ts', endpointTypesCode);
+
+      // Generate supabase stub in _lib
+      const supabaseStub = `
+import { createClient } from '@supabase/supabase-js';
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
+export const supabase = createClient(supabaseUrl, supabaseKey);
+`;
+      await writeFile2(libDir, 'supabase.ts', supabaseStub);
+
+      // Generate endpoint route files
+      const apiPrefix = '/api';
+      for (const endpoint of testEndpoints) {
+        const segments = pathToNextjsSegments(endpoint.path, apiPrefix);
+        const routeDir = join(dir, ...segments);
+        await mkdir(routeDir, { recursive: true });
+
+        const depth = segments.length;
+        const libRelativePath = '../'.repeat(depth) + '_lib';
+
+        const routeCode = generateEndpointRouteFile(endpoint, target, defaultConfig, libRelativePath);
+        await writeFile2(routeDir, 'route.ts', routeCode);
+      }
+
+      // Create tsconfig
+      await createTsConfig(dir, ['next', 'supabase']);
+
+      // Run compilation
+      const result = await runTsc(dir);
+
+      if (!result.success) {
+        console.error('Next.js API with endpoints compilation errors:', result.errors);
+      }
+      expect(result.success).toBe(true);
+    }, 30000);
+
+    it('supabase-edge with endpoints compiles', async () => {
+      const dir = await createTempDir('supabase-edge-endpoints');
+
+      const target: GenerationTarget = {
+        name: 'edge-endpoints',
+        type: 'supabase-edge',
+        output: dir,
+        backend: 'supabase',
+      };
+
+      // Create _shared directory
+      const sharedDir = join(dir, '_shared');
+      await mkdir(sharedDir, { recursive: true });
+
+      // Generate types in _shared
+      const typesCode = generateTypes(analyzedSchemas);
+      await writeFile2(sharedDir, 'types.ts', typesCode);
+
+      // Generate endpoint types in _shared
+      const endpointTypesCode = generateAllEndpointInterfaces(testEndpoints);
+      await writeFile2(sharedDir, 'endpoint-types.ts', endpointTypesCode);
+
+      // Generate supabase client stub in _shared
+      const supabaseStub = `
+import { createClient } from '@supabase/supabase-js';
+export const supabase = createClient(
+  Deno.env.get('SUPABASE_URL')!,
+  Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
+);
+`;
+      await writeFile2(sharedDir, 'supabase.ts', supabaseStub);
+
+      // Generate CORS helper in _shared
+      const corsStub = `
+export function corsHeaders(): Record<string, string> {
+  return {
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  };
+}
+`;
+      await writeFile2(sharedDir, 'cors.ts', corsStub);
+
+      // Generate endpoint edge functions
+      for (const endpoint of testEndpoints) {
+        const functionName = endpoint.path
+          .replace(/^\//, '')
+          .replace(/:(\w+)/g, '$1')
+          .replace(/\//g, '-');
+        const functionDir = join(dir, functionName);
+        await mkdir(functionDir, { recursive: true });
+
+        const functionCode = generateEndpointEdgeFunction(endpoint, target, defaultConfig);
+        await writeFile2(functionDir, 'index.ts', functionCode);
+      }
+
+      // Create tsconfig with Deno-like environment
+      // Use supabase type stubs (which provide @supabase/supabase-js)
+      // and add Deno namespace stub
+      const denoStub = `
+declare namespace Deno {
+  function serve(handler: (req: Request) => Response | Promise<Response>): void;
+  const env: {
+    get(key: string): string | undefined;
+  };
+}
+`;
+      await writeFile2(dir, 'deno-env.d.ts', denoStub);
+
+      // Supabase Edge uses Deno conventions with .ts imports
+      // Need allowImportingTsExtensions for that
+      const tsConfig = {
+        compilerOptions: {
+          target: 'ES2022',
+          module: 'ESNext',
+          moduleResolution: 'bundler',
+          lib: ['ES2022', 'DOM'],
+          typeRoots: [
+            join(PROJECT_ROOT, 'node_modules/@types'),
+            TYPE_STUBS_DIR,
+          ],
+          types: ['node'],
+          strict: true,
+          skipLibCheck: true,
+          noEmit: true,
+          esModuleInterop: true,
+          allowSyntheticDefaultImports: true,
+          forceConsistentCasingInFileNames: true,
+          allowImportingTsExtensions: true,
+        },
+        include: [
+          './**/*.ts',
+          join(TYPE_STUBS_DIR, 'supabase.d.ts'),
+        ],
+        exclude: ['node_modules'],
+      };
+      await writeFile(join(dir, 'tsconfig.json'), JSON.stringify(tsConfig, null, 2));
+
+      // Run compilation
+      const result = await runTsc(dir);
+
+      if (!result.success) {
+        console.error('Supabase Edge with endpoints compilation errors:', result.errors);
       }
       expect(result.success).toBe(true);
     }, 30000);

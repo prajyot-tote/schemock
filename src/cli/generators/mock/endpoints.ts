@@ -316,6 +316,38 @@ export function generateEndpointHandlers(endpoints: AnalyzedEndpoint[]): string 
   });
   code.line();
 
+  // Generate JWT decoding and context extraction for middleware support
+  code.comment('Decode JWT payload for context extraction (middleware support)');
+  code.block('function decodeJwtPayload(token: string): Record<string, unknown> | null {', () => {
+    code.block('try {', () => {
+      code.line("const base64Url = token.split('.')[1];");
+      code.line('if (!base64Url) return null;');
+      code.line("const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');");
+      code.line("const jsonPayload = decodeURIComponent(atob(base64).split('').map(c =>");
+      code.line("  '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2)");
+      code.line(").join(''));");
+      code.line('return JSON.parse(jsonPayload);');
+    }, '} catch {');
+    code.indent();
+    code.line('return null;');
+    code.dedent();
+    code.line('}');
+  });
+  code.line();
+
+  code.comment('Extract context from request headers (JWT Bearer token)');
+  code.block('function extractContextFromHeaders(headers: Record<string, string>): Record<string, unknown> | null {', () => {
+    code.line('const authHeader = headers["Authorization"] || headers["authorization"];');
+    code.line('if (!authHeader) return null;');
+    code.line();
+    code.line('const token = authHeader.startsWith("Bearer ")');
+    code.line('  ? authHeader.slice(7)');
+    code.line('  : authHeader;');
+    code.line();
+    code.line('return token ? decodeJwtPayload(token) : null;');
+  });
+  code.line();
+
   code.block('export const endpointHandlers = [', () => {
     for (const endpoint of endpoints) {
       generateHandler(code, endpoint);
@@ -404,12 +436,16 @@ function generateHandler(code: CodeBuilder, endpoint: AnalyzedEndpoint): void {
     code.line("request.headers.forEach((value, key) => { headers[key] = value; });");
     code.line();
 
-    // Call resolver with complete context (always includes params, body, db, headers)
+    // Extract context from JWT token in headers (for middleware support)
+    code.line('const context = extractContextFromHeaders(headers);');
+    code.line();
+
+    // Call resolver with complete context (always includes params, body, db, headers, context)
     // Type assertions ensure proper typing through the resolver chain
     const paramsArg = hasParams ? `params as Types.${pascalName}Params` : 'params';
     const bodyArg = hasBody ? `body as Types.${pascalName}Body` : 'body';
     code.block('try {', () => {
-      code.line(`const result = await endpointResolvers.${name}({ db, params: ${paramsArg}, body: ${bodyArg}, headers });`);
+      code.line(`const result = await endpointResolvers.${name}({ db, params: ${paramsArg}, body: ${bodyArg}, headers, context });`);
       code.line('return HttpResponse.json(result);');
     }, '} catch (error) {');
     code.indent();
@@ -487,6 +523,8 @@ export function generateEndpointResolvers(endpoints: AnalyzedEndpoint[], outputD
     code.line('body: TBody;');
     code.line('db: Database;');
     code.line('headers: Record<string, string>;');
+    code.line('/** Context populated by middleware (e.g., auth middleware adds userId, role) */');
+    code.line('context?: Record<string, unknown>;');
   });
   code.line();
 
