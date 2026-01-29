@@ -189,6 +189,8 @@ export async function discoverSchemas(pattern: string): Promise<DiscoveryResult>
   const endpoints: EndpointSchema[] = [];
   const loadedFiles: string[] = [];
   const endpointFiles = new Map<string, string>();
+  const seenEntityNames = new Set<string>();
+  const seenEndpointKeys = new Set<string>(); // Use method+path as key for proper deduplication
 
   for (const file of files) {
     try {
@@ -199,13 +201,28 @@ export async function discoverSchemas(pattern: string): Promise<DiscoveryResult>
       let foundSchema = false;
       for (const [_exportName, value] of Object.entries(module)) {
         if (isEntitySchema(value)) {
-          schemas.push(value);
+          // Deduplicate entities by name (handles re-exports from barrel files)
+          if (!seenEntityNames.has(value.name)) {
+            seenEntityNames.add(value.name);
+            schemas.push(value);
+          }
           foundSchema = true;
         } else if (isEndpointSchema(value)) {
-          endpoints.push(value);
+          // Deduplicate endpoints by method+path (handles re-exports and named+default exports)
+          // Using method+path allows same path with different HTTP methods (GET /users vs POST /users)
+          const endpointKey = `${value.method}:${value.path}`;
+          if (!seenEndpointKeys.has(endpointKey)) {
+            seenEndpointKeys.add(endpointKey);
+            endpoints.push(value);
+            // Track which file this endpoint came from (only set first occurrence)
+            if (!endpointFiles.has(value.path)) {
+              endpointFiles.set(value.path, file);
+            }
+          } else {
+            // Warn about duplicate (helps debugging)
+            console.warn(`Warning: Duplicate endpoint ${value.method} ${value.path} in ${file}`);
+          }
           foundSchema = true;
-          // Track which file this endpoint came from
-          endpointFiles.set(value.path, file);
         }
       }
 

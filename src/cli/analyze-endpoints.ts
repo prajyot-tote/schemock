@@ -77,6 +77,17 @@ function parseImportsFromFile(filePath: string): Map<string, string> {
 const localFunctionCache = new Map<string, Map<string, string>>();
 
 /**
+ * Clear analysis caches to prevent stale data between generator runs
+ *
+ * This should be called at the start of analyzeEndpoints() to ensure
+ * fresh analysis when running the generator multiple times in the same process.
+ */
+export function clearAnalysisCaches(): void {
+  importCache.clear();
+  localFunctionCache.clear();
+}
+
+/**
  * Parse local function definitions from a TypeScript/JavaScript source file
  *
  * @param filePath - Path to the source file
@@ -318,6 +329,9 @@ export function analyzeEndpoints(
   endpoints: EndpointSchema[],
   endpointFiles?: Map<string, string>
 ): AnalyzedEndpoint[] {
+  // Clear stale caches from previous runs to prevent stale data
+  clearAnalysisCaches();
+
   return endpoints.map((endpoint) => analyzeEndpoint(endpoint, endpointFiles));
 }
 

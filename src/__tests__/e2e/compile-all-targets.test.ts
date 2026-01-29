@@ -135,6 +135,9 @@ function createTestSchemas() {
 
 /**
  * Create test endpoints for endpoint code generation tests
+ *
+ * NOTE: Includes endpoints with same path but different HTTP methods to test
+ * proper deduplication by method+path (not just path)
  */
 function createTestEndpoints(): AnalyzedEndpoint[] {
   return [
@@ -156,6 +159,45 @@ function createTestEndpoints(): AnalyzedEndpoint[] {
       ],
       mockResolverSource: 'async () => ({ results: [], total: 0 })',
       description: 'Search across entities',
+    },
+    // Test: Same path with different HTTP methods (GET /api/users vs POST /api/users)
+    // This verifies that deduplication uses method+path, not just path
+    {
+      name: 'usersGet',
+      method: 'GET',
+      path: '/api/users',
+      pascalName: 'UsersGet',
+      pathParams: [],
+      params: [
+        { name: 'limit', type: 'number', tsType: 'number', required: false, hasDefault: true, default: 10, isArray: false, isObject: false },
+        { name: 'offset', type: 'number', tsType: 'number', required: false, hasDefault: true, default: 0, isArray: false, isObject: false },
+      ],
+      body: [],
+      response: [
+        { name: 'users', type: 'array', tsType: 'Array<{ id: string; name: string }>', required: true, hasDefault: false, isArray: true, isObject: false },
+        { name: 'total', type: 'number', tsType: 'number', required: true, hasDefault: false, isArray: false, isObject: false },
+      ],
+      mockResolverSource: 'async () => ({ users: [], total: 0 })',
+      description: 'List all users',
+    },
+    {
+      name: 'usersPost',
+      method: 'POST',
+      path: '/api/users',  // Same path as usersGet, different method
+      pascalName: 'UsersPost',
+      pathParams: [],
+      params: [],
+      body: [
+        { name: 'name', type: 'string', tsType: 'string', required: true, hasDefault: false, isArray: false, isObject: false },
+        { name: 'email', type: 'string', tsType: 'string', required: true, hasDefault: false, isArray: false, isObject: false },
+      ],
+      response: [
+        { name: 'id', type: 'string', tsType: 'string', required: true, hasDefault: false, isArray: false, isObject: false },
+        { name: 'name', type: 'string', tsType: 'string', required: true, hasDefault: false, isArray: false, isObject: false },
+        { name: 'email', type: 'string', tsType: 'string', required: true, hasDefault: false, isArray: false, isObject: false },
+      ],
+      mockResolverSource: 'async ({ body }) => ({ id: "new-id", name: body.name, email: body.email })',
+      description: 'Create a new user',
     },
     {
       name: 'authLogin',
