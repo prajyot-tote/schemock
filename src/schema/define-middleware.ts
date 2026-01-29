@@ -110,14 +110,18 @@ function normalizeField(field: FieldBuilder<unknown> | FieldDefinition): FieldDe
     values: builder.values,
   };
 
-  // Handle nested items (for arrays)
+  // Handle nested items (for arrays) - recursively normalize
   if (builder.items) {
-    definition.items = builder.items;
+    definition.items = normalizeField(builder.items);
   }
 
-  // Handle nested shape (for objects)
+  // Handle nested shape (for objects) - recursively normalize each field
   if (builder.shape) {
-    definition.shape = builder.shape;
+    const normalizedShape: Record<string, FieldDefinition> = {};
+    for (const [key, value] of Object.entries(builder.shape)) {
+      normalizedShape[key] = normalizeField(value as FieldBuilder<unknown> | FieldDefinition);
+    }
+    definition.shape = normalizedShape;
   }
 
   return definition;
