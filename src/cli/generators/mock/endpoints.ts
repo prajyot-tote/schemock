@@ -78,6 +78,53 @@ function injectResolverTypeAnnotation(source: string, contextType: string): stri
   return source;
 }
 
+/**
+ * Add `: any` type to untyped parameters in function source
+ *
+ * Transforms:
+ *   const fn = (a, b) => { ... }
+ *   function fn(a, b) { ... }
+ * Into:
+ *   const fn = (a: any, b: any) => { ... }
+ *   function fn(a: any, b: any) { ... }
+ */
+function addAnyTypeToUntypedParams(source: string): string {
+  // Match function parameters: (param1, param2, ...) for both arrow and regular functions
+  return source.replace(
+    /\(([^)]*)\)\s*(=>|{)/g,
+    (match, params, arrow) => {
+      if (!params.trim()) return match; // Empty params
+
+      const typedParams = params
+        .split(',')
+        .map((p: string) => {
+          const param = p.trim();
+          if (!param) return p;
+          // Skip if already has type annotation or is destructuring
+          if (param.includes(':') || param.startsWith('{') || param.startsWith('[')) {
+            return p;
+          }
+          // Skip rest parameters that already have type
+          if (param.startsWith('...') && param.includes(':')) {
+            return p;
+          }
+          // Add : any to the parameter
+          if (param.startsWith('...')) {
+            return p.replace(/^(\.\.\.\w+)/, '$1: any[]');
+          }
+          // Handle default values: param = default -> param: any = default
+          if (param.includes('=')) {
+            return param.replace(/^(\w+)\s*=/, '$1: any =');
+          }
+          return `${param}: any`;
+        })
+        .join(',');
+
+      return `(${typedParams}) ${arrow}`;
+    }
+  );
+}
+
 // ============================================================================
 // Type Generation
 // ============================================================================
@@ -539,8 +586,7 @@ export function generateEndpointResolvers(endpoints: AnalyzedEndpoint[], outputD
   code.comment('consider using named exported functions instead - they will be automatically imported.');
   code.line();
 
-  // Type imports - import Database and endpoint types for proper typing
-  code.line("import type { Database } from './db';");
+  // Type imports for endpoint types
   code.line("import type * as Types from './types';");
   code.line();
 
@@ -549,7 +595,7 @@ export function generateEndpointResolvers(endpoints: AnalyzedEndpoint[], outputD
   code.block('export interface ResolverContext<TParams = Record<string, unknown>, TBody = Record<string, unknown>> {', () => {
     code.line('params: TParams;');
     code.line('body: TBody;');
-    code.line('db: Database;');
+    code.line('db: any;');
     code.line('headers: Record<string, string>;');
     code.line('/** Context populated by middleware (e.g., auth middleware adds userId, role) */');
     code.line('context?: Record<string, unknown>;');
@@ -728,7 +774,7 @@ export function generateEndpointResolvers(endpoints: AnalyzedEndpoint[], outputD
     code.line();
     code.comment('Local helper functions (copied from source files)');
     for (const [, source] of allLocalFunctions) {
-      code.line(source);
+      code.line(addAnyTypeToUntypedParams(source));
       code.line();
     }
   }

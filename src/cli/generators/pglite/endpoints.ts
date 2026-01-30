@@ -61,6 +61,53 @@ function injectResolverTypeAnnotation(source: string, contextType: string): stri
   return source;
 }
 
+/**
+ * Add `: any` type to untyped parameters in function source
+ *
+ * Transforms:
+ *   const fn = (a, b) => { ... }
+ *   function fn(a, b) { ... }
+ * Into:
+ *   const fn = (a: any, b: any) => { ... }
+ *   function fn(a: any, b: any) { ... }
+ */
+function addAnyTypeToUntypedParams(source: string): string {
+  // Match function parameters: (param1, param2, ...) for both arrow and regular functions
+  return source.replace(
+    /\(([^)]*)\)\s*(=>|{)/g,
+    (match, params, arrow) => {
+      if (!params.trim()) return match; // Empty params
+
+      const typedParams = params
+        .split(',')
+        .map((p: string) => {
+          const param = p.trim();
+          if (!param) return p;
+          // Skip if already has type annotation or is destructuring
+          if (param.includes(':') || param.startsWith('{') || param.startsWith('[')) {
+            return p;
+          }
+          // Skip rest parameters that already have type
+          if (param.startsWith('...') && param.includes(':')) {
+            return p;
+          }
+          // Add : any to the parameter
+          if (param.startsWith('...')) {
+            return p.replace(/^(\.\.\.\w+)/, '$1: any[]');
+          }
+          // Handle default values: param = default -> param: any = default
+          if (param.includes('=')) {
+            return param.replace(/^(\w+)\s*=/, '$1: any =');
+          }
+          return `${param}: any`;
+        })
+        .join(',');
+
+      return `(${typedParams}) ${arrow}`;
+    }
+  );
+}
+
 // ============================================================================
 // Type Generation
 // ============================================================================
@@ -323,7 +370,6 @@ export function generatePGliteEndpointResolvers(endpoints: AnalyzedEndpoint[], o
   code.comment('They receive { params, body, db, headers, rlsContext } and return the response.');
   code.line();
 
-  code.line("import type { PGlite } from '@electric-sql/pglite';");
   code.line("import type { RLSContext } from './db';");
   code.line("import type * as Types from './types';");
   code.line();
@@ -333,7 +379,7 @@ export function generatePGliteEndpointResolvers(endpoints: AnalyzedEndpoint[], o
   code.block('export interface PGliteResolverContext<TParams = Record<string, unknown>, TBody = Record<string, unknown>> {', () => {
     code.line('params: TParams;');
     code.line('body: TBody;');
-    code.line('db: PGlite;');
+    code.line('db: any;');
     code.line('headers: Record<string, string>;');
     code.line('rlsContext?: RLSContext;');
   });
@@ -490,7 +536,7 @@ export function generatePGliteEndpointResolvers(endpoints: AnalyzedEndpoint[], o
     code.line();
     code.comment('Local helper functions (copied from source files)');
     for (const [, source] of Array.from(allLocalFunctions.entries())) {
-      code.line(source);
+      code.line(addAnyTypeToUntypedParams(source));
       code.line();
     }
   }
