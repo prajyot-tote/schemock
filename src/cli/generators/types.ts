@@ -49,7 +49,8 @@ function generateEntityTypes(code: CodeBuilder, schema: AnalyzedSchema, allSchem
     // Fields (includes timestamps if schema has timestamps: true)
     for (const field of fields) {
       const opt = field.nullable ? '?' : '';
-      code.line(`${field.name}${opt}: ${field.tsType};`);
+      const nullUnion = field.nullable ? ' | null' : '';
+      code.line(`${field.name}${opt}: ${field.tsType}${nullUnion};`);
     }
 
     // Computed
@@ -83,7 +84,8 @@ function generateEntityTypes(code: CodeBuilder, schema: AnalyzedSchema, allSchem
     for (const field of fields) {
       if (field.name === 'id' || field.readOnly) continue;
       const opt = field.nullable || field.hasDefault ? '?' : '';
-      code.line(`${field.name}${opt}: ${field.tsType};`);
+      const nullUnion = field.nullable ? ' | null' : '';
+      code.line(`${field.name}${opt}: ${field.tsType}${nullUnion};`);
     }
 
     // Nested creates for hasMany/hasOne/belongsTo
@@ -102,7 +104,8 @@ function generateEntityTypes(code: CodeBuilder, schema: AnalyzedSchema, allSchem
   code.block(`export interface ${pascalName}Update {`, () => {
     for (const field of fields) {
       if (field.name === 'id' || field.readOnly) continue;
-      code.line(`${field.name}?: ${field.tsType};`);
+      const nullUnion = field.nullable ? ' | null' : '';
+      code.line(`${field.name}?: ${field.tsType}${nullUnion};`);
     }
   });
   code.line();

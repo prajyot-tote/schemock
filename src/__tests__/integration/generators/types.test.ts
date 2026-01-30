@@ -150,8 +150,16 @@ describe('Types Generator Integration', () => {
       const analyzed = analyzeTestSchemas(ecommerceSchemas);
       const code = generateTypes(analyzed);
 
-      // categoryId is nullable - should have optional marker
+      // categoryId is nullable - should have optional marker AND | null union
       expect(code).toContain('categoryId?:');
+
+      // Verify | null is generated for nullable fields in all interfaces
+      // Main entity interface
+      expect(code).toMatch(/interface Product \{[\s\S]*?categoryId\?: string \| null/);
+      // Create interface
+      expect(code).toMatch(/interface ProductCreate \{[\s\S]*?categoryId\?: string \| null/);
+      // Update interface
+      expect(code).toMatch(/interface ProductUpdate \{[\s\S]*?categoryId\?: string \| null/);
     });
 
     it('generates interfaces for all entities', () => {
