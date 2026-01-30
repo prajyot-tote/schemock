@@ -611,12 +611,43 @@ function fieldToTsType(field: FieldDefinition): string {
 }
 
 /**
+ * Normalize excessive whitespace in source code.
+ *
+ * This handles tsx/ts-node environments where toString() returns code
+ * with spaces where TypeScript annotations were stripped (sourcemap preservation).
+ *
+ * Transforms:
+ * - `context?.userId          ;` → `context?.userId ;`
+ * - `new Set        ();` → `new Set ();`
+ * - `(obj        )         => {` → `(obj ) => {`
+ *
+ * @param source - The source code to normalize
+ * @returns Normalized source code with collapsed whitespace
+ */
+function normalizeWhitespace(source: string): string {
+  return source
+    .split('\n')
+    .map((line) => {
+      // Preserve indentation at the start of lines
+      const indent = line.match(/^(\s*)/)?.[1] || '';
+      const rest = line.slice(indent.length);
+      // Collapse multiple consecutive spaces to a single space in the line content
+      return indent + rest.replace(/  +/g, ' ');
+    })
+    .join('\n');
+}
+
+/**
  * Serialize mock resolver function to string
  *
  * Handles both regular functions and arrow functions
  */
 function serializeMockResolver(resolver: Function): string {
-  const source = resolver.toString();
+  let source = resolver.toString();
+
+  // Normalize whitespace - handles tsx/ts-node sourcemap-preserved spacing
+  // where TypeScript annotations are replaced with equivalent whitespace
+  source = normalizeWhitespace(source);
 
   // If it's an arrow function, it might need to be wrapped
   // Check if it starts with 'async' or directly with parameters

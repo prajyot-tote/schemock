@@ -344,10 +344,10 @@ export function generateEndpointHandlers(endpoints: AnalyzedEndpoint[]): string 
 
   // Generate JWT decoding and context extraction for middleware support
   code.comment('Decode JWT payload for context extraction (middleware support)');
-  code.block('function decodeJwtPayload(token: string): Record<string, unknown> | null {', () => {
+  code.block('function decodeJwtPayload(token: string): Record<string, unknown> | undefined {', () => {
     code.block('try {', () => {
       code.line("const base64Url = token.split('.')[1];");
-      code.line('if (!base64Url) return null;');
+      code.line('if (!base64Url) return undefined;');
       code.line("const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');");
       code.line("const jsonPayload = decodeURIComponent(atob(base64).split('').map(c =>");
       code.line("  '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2)");
@@ -355,22 +355,22 @@ export function generateEndpointHandlers(endpoints: AnalyzedEndpoint[]): string 
       code.line('return JSON.parse(jsonPayload);');
     }, '} catch {');
     code.indent();
-    code.line('return null;');
+    code.line('return undefined;');
     code.dedent();
     code.line('}');
   });
   code.line();
 
   code.comment('Extract context from request headers (JWT Bearer token)');
-  code.block('function extractContextFromHeaders(headers: Record<string, string>): Record<string, unknown> | null {', () => {
+  code.block('function extractContextFromHeaders(headers: Record<string, string>): Record<string, unknown> | undefined {', () => {
     code.line('const authHeader = headers["Authorization"] || headers["authorization"];');
-    code.line('if (!authHeader) return null;');
+    code.line('if (!authHeader) return undefined;');
     code.line();
     code.line('const token = authHeader.startsWith("Bearer ")');
     code.line('  ? authHeader.slice(7)');
     code.line('  : authHeader;');
     code.line();
-    code.line('return token ? decodeJwtPayload(token) : null;');
+    code.line('return token ? decodeJwtPayload(token) : undefined;');
   });
   code.line();
 

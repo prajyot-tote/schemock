@@ -160,10 +160,10 @@ export function generatePGliteEndpointClient(endpoints: AnalyzedEndpoint[]): str
 
   // JWT decoding for RLS context extraction
   code.comment('Decode JWT payload');
-  code.block('function decodeJwtPayload(token: string): RLSContext | null {', () => {
+  code.block('function decodeJwtPayload(token: string): RLSContext | undefined {', () => {
     code.block('try {', () => {
       code.line('const parts = token.split(".");');
-      code.line('if (parts.length !== 3) return null;');
+      code.line('if (parts.length !== 3) return undefined;');
       code.line('const payload = parts[1].replace(/-/g, "+").replace(/_/g, "/");');
       code.line('const decoded = typeof atob === "function"');
       code.line('  ? atob(payload)');
@@ -171,18 +171,18 @@ export function generatePGliteEndpointClient(endpoints: AnalyzedEndpoint[]): str
       code.line('return JSON.parse(decoded);');
     }, '} catch {');
     code.indent();
-    code.line('return null;');
+    code.line('return undefined;');
     code.dedent();
     code.line('}');
   });
   code.line();
 
   code.comment('Extract RLS context from headers');
-  code.block('function extractContextFromHeaders(headers: Record<string, string>): RLSContext | null {', () => {
+  code.block('function extractContextFromHeaders(headers: Record<string, string>): RLSContext | undefined {', () => {
     code.line('const authHeader = headers["Authorization"] || headers["authorization"];');
-    code.line('if (!authHeader) return null;');
+    code.line('if (!authHeader) return undefined;');
     code.line('const token = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : authHeader;');
-    code.line('return token ? decodeJwtPayload(token) : null;');
+    code.line('return token ? decodeJwtPayload(token) : undefined;');
   });
   code.line();
 
@@ -335,7 +335,7 @@ export function generatePGliteEndpointResolvers(endpoints: AnalyzedEndpoint[], o
     code.line('body: TBody;');
     code.line('db: PGlite;');
     code.line('headers: Record<string, string>;');
-    code.line('rlsContext: RLSContext | null;');
+    code.line('rlsContext?: RLSContext;');
   });
   code.line();
 
