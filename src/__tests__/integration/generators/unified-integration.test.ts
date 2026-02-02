@@ -182,7 +182,7 @@ describe('unified generators integration', () => {
       expect(middlewareCode).toContain("import { authMiddleware, tenantMiddleware, adminMiddleware } from '@/middleware'");
 
       // Handler should use getMiddleware from middleware file
-      expect(handlersCode).toContain("import { withMiddleware, getMiddleware, type MiddlewareContext } from './middleware'");
+      expect(handlersCode).toContain("import { withMiddleware, getMiddleware, getEndpointMiddleware, type MiddlewareContext } from './middleware'");
     });
 
     it('should generate middleware config that handler uses', () => {

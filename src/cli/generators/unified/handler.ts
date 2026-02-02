@@ -97,13 +97,20 @@ function generateMswHandlers(
 
   // Imports
   code.line("import { http, HttpResponse } from 'msw';");
-  code.line(`import { withMiddleware, getMiddleware, type MiddlewareContext } from '${middlewareImport}';`);
+  code.line(`import { withMiddleware, getMiddleware, getEndpointMiddleware, type MiddlewareContext } from '${middlewareImport}';`);
 
   // Import services
   const serviceImports = schemas
     .filter((s) => !s.isJunctionTable)
     .map((s) => `${s.singularName}Service`);
-  code.line(`import { ${serviceImports.join(', ')} } from '${servicesImport}';`);
+
+  // Import endpoint services if any endpoints are included
+  const endpointServiceImports = includeEndpoints && endpoints.length > 0
+    ? endpoints.map((e) => `${e.name}Service`)
+    : [];
+
+  const allServiceImports = [...serviceImports, ...endpointServiceImports];
+  code.line(`import { ${allServiceImports.join(', ')} } from '${servicesImport}';`);
 
   // Import types
   const typeImports: string[] = [];
@@ -111,7 +118,22 @@ function generateMswHandlers(
     if (schema.isJunctionTable) continue;
     typeImports.push(`${schema.pascalName}Create`, `${schema.pascalName}Update`);
   }
-  code.line(`import type { ${typeImports.join(', ')} } from '${typesImport}';`);
+
+  // Import endpoint types
+  if (includeEndpoints && endpoints.length > 0) {
+    for (const endpoint of endpoints) {
+      if (endpoint.params && endpoint.params.length > 0) {
+        typeImports.push(`${endpoint.pascalName}Params`);
+      }
+      if (endpoint.body && endpoint.body.length > 0) {
+        typeImports.push(`${endpoint.pascalName}Body`);
+      }
+    }
+  }
+
+  if (typeImports.length > 0) {
+    code.line(`import type { ${typeImports.join(', ')} } from '${typesImport}';`);
+  }
   code.line();
 
   // Query options parser
@@ -244,33 +266,98 @@ function generateMswEndpointHandler(
   apiPrefix: string
 ): void {
   const method = endpoint.method.toLowerCase();
-  const path = endpoint.path.startsWith('/') ? endpoint.path : `/${endpoint.path}`;
+  let path = endpoint.path.startsWith('/') ? endpoint.path : `/${endpoint.path}`;
+  const { name, pascalName, params, body, pathParams } = endpoint;
+
+  // Don't double-prefix if path already starts with apiPrefix
+  if (path.startsWith(apiPrefix)) {
+    path = path.slice(apiPrefix.length);
+  }
 
   // Convert :param to path params pattern for MSW
   const mswPath = path.replace(/:([^/]+)/g, ':$1');
 
-  code.block(`http.${method}('${apiPrefix}${mswPath}', async ({ request, params }) => {`, () => {
-    code.comment(`Custom endpoint: ${endpoint.name}`);
+  const hasParams = params && params.length > 0;
+  const hasBody = body && body.length > 0;
+  const hasPathParams = pathParams && pathParams.length > 0;
 
-    // Check if endpoint has middleware
-    const hasMiddleware = endpoint.middleware && endpoint.middleware.length > 0;
+  code.block(`http.${method}('${apiPrefix}${mswPath}', async ({ request, params: routeParams }) => {`, () => {
+    code.comment(`Custom endpoint: ${name}`);
 
-    if (hasMiddleware) {
-      code.line(`return withMiddleware([], request, async (ctx) => { // TODO: Wire up middleware`);
-    } else {
-      code.line('const ctx: MiddlewareContext = {}; // No middleware configured');
-    }
-
+    // Use getEndpointMiddleware which handles endpoint-specific middleware
+    code.line(`return withMiddleware(getEndpointMiddleware('${name}'), request, async (ctx) => {`);
     code.indent();
-    code.comment('TODO: Import and call endpoint service');
-    code.line('return HttpResponse.json({ message: "Not implemented" }, { status: 501 });');
-    code.dedent();
 
-    if (hasMiddleware) {
-      code.line('});');
+    // Extract path parameters if any
+    if (hasPathParams) {
+      for (const pathParam of pathParams) {
+        code.line(`const ${pathParam} = routeParams.${pathParam} as string;`);
+      }
     }
+
+    // Parse query parameters if endpoint has params
+    if (hasParams) {
+      code.line('const url = new URL(request.url);');
+      code.line(`const params: ${pascalName}Params = {`);
+      code.indent();
+
+      for (const param of params) {
+        // Path params are extracted differently
+        if (pathParams && pathParams.includes(param.name)) {
+          code.line(`${param.name},`);
+        } else {
+          // Query param extraction with type coercion
+          const getter = getParamExtractor(param);
+          code.line(`${param.name}: ${getter},`);
+        }
+      }
+
+      code.dedent();
+      code.line('};');
+    }
+
+    // Parse body if endpoint has body
+    if (hasBody) {
+      code.line(`const body = await request.json() as ${pascalName}Body;`);
+    }
+
+    // Call the endpoint service
+    const serviceArgs: string[] = ['ctx'];
+    if (hasParams) serviceArgs.push('params');
+    if (hasBody) serviceArgs.push('body');
+
+    code.line(`const data = await ${name}Service.execute(${serviceArgs.join(', ')});`);
+    code.line('return HttpResponse.json({ data });');
+
+    code.dedent();
+    code.line('});');
   }, '}),');
   code.line();
+}
+
+/**
+ * Get the param extractor expression for a given parameter field
+ */
+function getParamExtractor(param: import('../../types').AnalyzedEndpointField): string {
+  const getter = `url.searchParams.get('${param.name}')`;
+
+  if (param.type === 'number') {
+    if (param.hasDefault && param.default !== undefined) {
+      return `${getter} ? parseFloat(${getter}) : ${param.default}`;
+    }
+    return `${getter} ? parseFloat(${getter}) : undefined`;
+  }
+
+  if (param.type === 'boolean') {
+    return `${getter} === 'true'`;
+  }
+
+  if (param.hasDefault && param.default !== undefined) {
+    const defaultVal = typeof param.default === 'string' ? `'${param.default}'` : param.default;
+    return `${getter} ?? ${defaultVal}`;
+  }
+
+  return `${getter} ?? undefined`;
 }
 
 /**

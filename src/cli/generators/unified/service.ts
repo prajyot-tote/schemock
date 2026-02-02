@@ -381,6 +381,17 @@ export function generateServicesIndex(schemas: AnalyzedSchema[]): string {
 }
 
 /**
+ * Configuration for endpoint service generation
+ */
+export interface EndpointServiceConfig extends ServiceGeneratorConfig {
+  /**
+   * Generate stub services (placeholder for manual implementation) or
+   * resolver-based services (delegate to mockResolver)
+   */
+  mode?: 'stub' | 'resolver';
+}
+
+/**
  * Generate service for custom endpoint
  *
  * @param endpoint - Analyzed endpoint
@@ -389,11 +400,12 @@ export function generateServicesIndex(schemas: AnalyzedSchema[]): string {
  */
 export function generateEndpointService(
   endpoint: AnalyzedEndpoint,
-  config: ServiceGeneratorConfig = {}
+  config: EndpointServiceConfig = {}
 ): string {
   const code = new CodeBuilder();
   const dbImport = config.dbImport ?? './db';
   const typesImport = config.typesImport ?? '../types';
+  const mode = config.mode ?? 'resolver';
 
   const { name, pascalName, params, body, response } = endpoint;
 
@@ -418,11 +430,39 @@ export function generateEndpointService(
   code.line("import type { MiddlewareContext } from './index';");
   code.line();
 
+  // Import resolver dependencies if in resolver mode
+  if (mode === 'resolver' && endpoint.resolverDependencies && endpoint.resolverDependencies.length > 0) {
+    for (const dep of endpoint.resolverDependencies) {
+      if (dep.isDefault) {
+        code.line(`import ${dep.name} from '${dep.from}';`);
+      } else {
+        code.line(`import { ${dep.name} } from '${dep.from}';`);
+      }
+    }
+    code.line();
+  }
+
+  // Generate local functions used by resolver
+  if (mode === 'resolver' && endpoint.localFunctions && endpoint.localFunctions.length > 0) {
+    code.comment('Local helper functions for the resolver');
+    for (const fn of endpoint.localFunctions) {
+      code.line(fn.source);
+      code.line();
+    }
+  }
+
+  // Generate the resolver function (if in resolver mode and has source)
+  if (mode === 'resolver' && endpoint.mockResolverSource) {
+    generateResolverFunction(code, endpoint);
+  }
+
   // Generate service
   code.multiDocComment([
     `Service for ${name} endpoint`,
     '',
-    'Implement the business logic for this custom endpoint.',
+    mode === 'resolver'
+      ? 'Delegates to the mockResolver defined in the endpoint.'
+      : 'Implement the business logic for this custom endpoint.',
     'Called by the route handler after middleware processing.',
   ]);
 
@@ -445,11 +485,23 @@ export function generateEndpointService(
     if (hasBody) methodParams.push(`body: ${pascalName}Body`);
 
     code.block(`async execute(${methodParams.join(', ')}): Promise<${responseType}> {`, () => {
-      code.comment('TODO: Implement endpoint logic');
-      code.comment('Access database via: db.entityName.findMany/findUnique/create/update/delete');
-      code.comment('Access auth context via: ctx.userId, ctx.role, ctx.tenantId, etc.');
-      if (responseType !== 'void') {
-        code.line(`throw new Error('Not implemented: ${name}');`);
+      if (mode === 'resolver' && endpoint.mockResolverSource) {
+        // Call the resolver function
+        const resolverArgs: string[] = [];
+        if (hasParams) resolverArgs.push('params');
+        if (hasBody) resolverArgs.push('body');
+        resolverArgs.push('db');
+        resolverArgs.push('ctx');
+
+        code.line(`return ${name}Resolver({ ${resolverArgs.join(', ')} });`);
+      } else {
+        // Stub mode - generate placeholder
+        code.comment('TODO: Implement endpoint logic');
+        code.comment('Access database via: db.entityName.findMany/findUnique/create/update/delete');
+        code.comment('Access auth context via: ctx.userId, ctx.role, ctx.tenantId, etc.');
+        if (responseType !== 'void') {
+          code.line(`throw new Error('Not implemented: ${name}');`);
+        }
       }
     }, '},');
   }, '};');
@@ -458,4 +510,52 @@ export function generateEndpointService(
   code.line(`export default ${name}Service;`);
 
   return code.toString();
+}
+
+/**
+ * Generate the resolver function from endpoint mockResolverSource
+ */
+function generateResolverFunction(code: CodeBuilder, endpoint: AnalyzedEndpoint): void {
+  const { name, pascalName, params, body, response, mockResolverSource } = endpoint;
+
+  // Build the resolver context type
+  const contextFields: string[] = [];
+  if (params && params.length > 0) contextFields.push(`params: ${pascalName}Params`);
+  if (body && body.length > 0) contextFields.push(`body: ${pascalName}Body`);
+  contextFields.push('db: typeof db');
+  contextFields.push('ctx: MiddlewareContext');
+
+  const responseType = response && response.length > 0 ? `${pascalName}Response` : 'void';
+
+  code.multiDocComment([
+    `Resolver context type for ${name} endpoint`,
+  ]);
+  code.block(`interface ${pascalName}ResolverContext {`, () => {
+    for (const field of contextFields) {
+      code.line(`${field};`);
+    }
+  });
+  code.line();
+
+  code.multiDocComment([
+    `Resolver function for ${name} endpoint`,
+    'This is the mockResolver converted to a callable function.',
+  ]);
+
+  // Determine if the resolver is an arrow function or regular function
+  const isArrowFunction = mockResolverSource.trim().startsWith('async') && mockResolverSource.includes('=>');
+
+  if (isArrowFunction) {
+    // Arrow function: convert to named function
+    // Pattern: async ({ params, body, db }) => { ... }
+    // or: async (ctx) => { ... }
+    code.line(`const ${name}Resolver = ${mockResolverSource.trim()};`);
+  } else if (endpoint.mockResolverName) {
+    // Named function reference - import or use directly
+    code.line(`const ${name}Resolver = ${endpoint.mockResolverName};`);
+  } else {
+    // Regular function - wrap in a variable
+    code.line(`const ${name}Resolver: (ctx: ${pascalName}ResolverContext) => Promise<${responseType}> = ${mockResolverSource.trim()};`);
+  }
+  code.line();
 }

@@ -15,6 +15,7 @@ export {
   generateServicesIndex,
   generateEndpointService,
   type ServiceGeneratorConfig,
+  type EndpointServiceConfig,
 } from './service';
 export {
   generateWithMiddleware,

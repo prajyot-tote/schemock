@@ -285,11 +285,18 @@ describe('Service Generator', () => {
       expect(code).toContain('async execute(ctx: MiddlewareContext, params: SearchParams, body: SearchBody): Promise<SearchResponse>');
     });
 
-    it('should include TODO placeholder for implementation', () => {
-      const code = generateEndpointService(searchEndpointAnalyzed);
+    it('should include TODO placeholder for implementation in stub mode', () => {
+      const code = generateEndpointService(searchEndpointAnalyzed, { mode: 'stub' });
 
       expect(code).toContain('// TODO: Implement endpoint logic');
       expect(code).toContain("throw new Error('Not implemented: search')");
+    });
+
+    it('should call resolver in default (resolver) mode', () => {
+      const code = generateEndpointService(searchEndpointAnalyzed);
+
+      expect(code).toContain('return searchResolver({ params, body, db, ctx });');
+      expect(code).not.toContain('// TODO: Implement endpoint logic');
     });
 
     it('should export service as default', () => {
