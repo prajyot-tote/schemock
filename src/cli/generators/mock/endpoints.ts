@@ -125,6 +125,93 @@ function addAnyTypeToUntypedParams(source: string): string {
   );
 }
 
+/**
+ * Add type annotations to function body code where TypeScript types were stripped
+ *
+ * When tsx/ts-node compiles TypeScript, type annotations are stripped but whitespace
+ * is preserved (for sourcemaps). Function.toString() returns this compiled JS with
+ * extra spaces where types used to be.
+ *
+ * This function adds type annotations back to common patterns:
+ *
+ * 1. Variable declarations: `let profiles ;` → `let profiles: any;`
+ * 2. Callback arrow params: `.map((m )` → `.map((m: any)`
+ * 3. Generic constructors: `new Set ();` → `new Set<unknown>();`
+ * 4. Type assertions (partial): `userId ;` after `=` → cleaned up spacing
+ *
+ * @param source - The function source code with stripped types
+ * @returns Source code with type annotations added
+ */
+function addAnyTypesToBody(source: string): string {
+  let result = source;
+
+  // Pattern 1: Variable declarations without types
+  // `let varname ;` or `let varname =` where there's suspicious spacing
+  // Matches: let profiles ; or let profiles =
+  result = result.replace(
+    /\b(let|var)\s+(\w+)\s+;/g,
+    '$1 $2: any;'
+  );
+  result = result.replace(
+    /\b(let|var)\s+(\w+)\s+=\s/g,
+    '$1 $2: any = '
+  );
+
+  // Pattern 2: Clean up trailing spaces before semicolons
+  // `const callerId = context?.userId ;` - the ; with space before it indicates stripped type assertion
+  // We can't know what type it was, but we can clean up the suspicious spacing
+  // Match space(s) before semicolon in any context
+  result = result.replace(/\s+;/g, ';');
+
+  // Pattern 3: Generic constructors with space before parens
+  // `new Set ();` → `new Set<unknown>();`
+  // `new Map ();` → `new Map<unknown, unknown>();`
+  result = result.replace(/\bnew\s+Set\s+\(\)/g, 'new Set<unknown>()');
+  result = result.replace(/\bnew\s+Map\s+\(\)/g, 'new Map<unknown, unknown>()');
+  result = result.replace(/\bnew\s+Array\s+\(\)/g, 'new Array<unknown>()');
+  result = result.replace(/\bnew\s+WeakSet\s+\(\)/g, 'new WeakSet<object>()');
+  result = result.replace(/\bnew\s+WeakMap\s+\(\)/g, 'new WeakMap<object, unknown>()');
+
+  // Pattern 4: Arrow function params in callbacks with stripped types
+  // `.map((m )` → `.map((m: any)` - space before ) indicates stripped type
+  // `.filter((item )` → `.filter((item: any)`
+  // `.forEach((x )` → `.forEach((x: any)`
+  // `.find((el )` → `.find((el: any)`
+  // `.some((v )` → `.some((v: any)`
+  // `.every((e )` → `.every((e: any)`
+  // `.reduce((acc, curr )` → `.reduce((acc: any, curr: any)`
+  const callbackMethods = ['map', 'filter', 'forEach', 'find', 'findIndex', 'some', 'every', 'reduce', 'flatMap', 'sort'];
+  for (const method of callbackMethods) {
+    // Single param: .method((param ) =>
+    result = result.replace(
+      new RegExp(`\\.${method}\\(\\((\\w+)\\s+\\)\\s*=>`, 'g'),
+      `.${method}(($1: any) =>`
+    );
+    // Multiple params: .method((a , b ) =>
+    result = result.replace(
+      new RegExp(`\\.${method}\\(\\((\\w+)\\s*,\\s*(\\w+)\\s+\\)\\s*=>`, 'g'),
+      `.${method}(($1: any, $2: any) =>`
+    );
+  }
+
+  // Pattern 5: Standalone arrow functions with stripped param types
+  // Used in: const fn = (x ) => or just (x ) =>
+  // Match: (identifier space) => but not if already typed
+  result = result.replace(
+    /\((\w+)\s+\)\s*=>/g,
+    '($1: any) =>'
+  );
+
+  // Pattern 6: Multiple params with stripped types in arrow functions
+  // (a , b ) => but not (a: type, b: type) =>
+  result = result.replace(
+    /\((\w+)\s*,\s*(\w+)\s+\)\s*=>/g,
+    '($1: any, $2: any) =>'
+  );
+
+  return result;
+}
+
 // ============================================================================
 // Type Generation
 // ============================================================================
@@ -814,9 +901,11 @@ export function generateEndpointResolvers(endpoints: AnalyzedEndpoint[], outputD
         code.line(`${endpoint.name}: ${endpoint.mockResolverName} as ${endpoint.pascalName}ResolverFn,`);
       } else {
         // Inline resolver - inject type annotation into function parameters
+        // and add type annotations to body where they were stripped by tsx/ts-node
         // This enables proper type-checking within the function body
+        const bodyTypedSource = addAnyTypesToBody(endpoint.mockResolverSource);
         const typedSource = injectResolverTypeAnnotation(
-          endpoint.mockResolverSource,
+          bodyTypedSource,
           `${endpoint.pascalName}ResolverContext`
         );
         code.line(`${endpoint.name}: ${typedSource},`);
