@@ -1,4 +1,4 @@
-import { defineConfig } from './src/cli/types';
+import { defineConfig } from 'schemock/cli';
 
 export default defineConfig({
   schemas: './src/schemas/**/*.ts',
