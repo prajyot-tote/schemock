@@ -267,7 +267,7 @@ function generateSchemaExports(code: CodeBuilder, schemas: AnalyzedSchema[]): vo
 function generateEntitySchemaObject(code: CodeBuilder, schema: AnalyzedSchema): void {
   code.block('{', () => {
     code.line(`name: '${schema.name}',`);
-    code.line(`timestamps: ${schema.hasTimestamps},`);
+    code.line(`timestamps: ${!!schema.hasTimestamps},`);
 
     // Generate fields object
     code.block('fields: {', () => {

@@ -308,7 +308,7 @@ function analyzeSchema(
 
     dependsOn: [],
 
-    hasTimestamps: schema.timestamps ?? true,
+    hasTimestamps: schema.timestamps !== false,
     isJunctionTable: false,
 
     rls: analyzeRLS(schema.rls),
