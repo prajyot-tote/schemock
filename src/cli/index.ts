@@ -31,6 +31,7 @@ export { CodeBuilder } from './utils/code-builder';
 export { generateTypes } from './generators/types';
 export { generateHooks } from './generators/hooks';
 export { generateMockDb } from './generators/mock/db';
+export { generateMockAdapter } from './generators/mock/adapter';
 export { generateMockHandlers } from './generators/mock/handlers';
 export { generateMockClient } from './generators/mock/client';
 export { generateMockSeed, generateMockSeed as generateSeed } from './generators/mock/seed';

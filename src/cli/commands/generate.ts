@@ -24,6 +24,7 @@ import type {
 // Generators
 import { generateTypes } from '../generators/types';
 import { generateMockDb } from '../generators/mock/db';
+import { generateMockAdapter as generateMockAdapterCode } from '../generators/mock/adapter';
 import { generateMockHandlers, generateAllHandlersExport } from '../generators/mock/handlers';
 import { generateMockClient } from '../generators/mock/client';
 import { generateRoutes } from '../generators/mock/routes';
@@ -349,6 +350,11 @@ async function generateMockAdapter(
   await writeOutput(join(outputDir, 'db.ts'), dbCode, options.dryRun);
   console.log(`   ✓ db.ts (@mswjs/data factory with ${schemas.length} entities)`);
 
+  // Generate adapter.ts with MockAdapter and middleware pipeline
+  const adapterCode = generateMockAdapterCode(schemas);
+  await writeOutput(join(outputDir, 'adapter.ts'), adapterCode, options.dryRun);
+  console.log('   ✓ adapter.ts (MockAdapter with middleware pipeline)');
+
   const routesCode = generateRoutes(schemas);
   await writeOutput(join(outputDir, 'routes.ts'), routesCode, options.dryRun);
   const entityCount = schemas.filter((s) => !s.isJunctionTable).length;
@@ -527,7 +533,8 @@ function generateIndex(adapter: string, hasEndpoints: boolean = false, framework
   }
 
   if (adapter === 'mock') {
-    lines.push("export { db } from './db';");
+    lines.push("export { db, schemas } from './db';");
+    lines.push("export { adapter } from './adapter';");
     lines.push("export { handlers } from './handlers';");
     lines.push("export { allHandlers } from './all-handlers';");
     lines.push("export { seed, reset, getAll } from './seed';");

@@ -21,6 +21,7 @@ import type {
 // Existing generators
 import { generateTypes } from './types';
 import { generateMockDb } from './mock/db';
+import { generateMockAdapter } from './mock/adapter';
 import { generateMockHandlers, generateAllHandlersExport } from './mock/handlers';
 import { generateMockClient } from './mock/client';
 import { generateRoutes } from './mock/routes';
@@ -274,6 +275,11 @@ async function generateMockTarget(
   const dbCode = generateMockDb(schemas, mockConfig);
   await writeOutput(join(outputDir, 'db.ts'), dbCode, options.dryRun);
   files.push('db.ts');
+
+  // Generate adapter.ts with MockAdapter and middleware pipeline
+  const adapterCode = generateMockAdapter(schemas);
+  await writeOutput(join(outputDir, 'adapter.ts'), adapterCode, options.dryRun);
+  files.push('adapter.ts');
 
   const routesCode = generateRoutes(schemas);
   await writeOutput(join(outputDir, 'routes.ts'), routesCode, options.dryRun);
