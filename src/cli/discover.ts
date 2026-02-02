@@ -7,8 +7,8 @@
 
 import { resolve, relative } from 'node:path';
 import { readdir, stat } from 'node:fs/promises';
-import type { EntitySchema, EndpointSchema } from '../schema/types';
-import { isEndpointSchema } from '../schema/types';
+import type { EntitySchema, EndpointSchema, MiddlewareSchema } from '../schema/types';
+import { isEndpointSchema, isMiddlewareSchema } from '../schema/types';
 
 /**
  * Result of schema discovery
@@ -18,10 +18,14 @@ export interface DiscoveryResult {
   schemas: EntitySchema[];
   /** Discovered custom endpoints */
   endpoints: EndpointSchema[];
+  /** Discovered middleware schemas */
+  middleware: MiddlewareSchema[];
   /** File paths where schemas were found */
   files: string[];
   /** Map of endpoint paths to their source file paths */
   endpointFiles?: Map<string, string>;
+  /** Map of middleware names to their source file paths */
+  middlewareFiles?: Map<string, string>;
 }
 
 /**
@@ -150,39 +154,39 @@ function isEntitySchema(value: unknown): value is EntitySchema {
 }
 
 /**
+ * Options for schema discovery
+ */
+export interface DiscoverOptions {
+  /** Glob pattern for custom endpoints (optional, can also be in schemas pattern) */
+  endpointsGlob?: string;
+  /** Glob pattern for middleware files */
+  middlewareGlob?: string;
+}
+
+/**
  * Discover schemas from files matching a glob pattern or direct file path
  *
  * @param pattern - Glob pattern or direct file path to schema files
- * @returns Discovery result with schemas and file paths
+ * @param options - Optional discovery options for endpoints and middleware
+ * @returns Discovery result with schemas, endpoints, middleware, and file paths
  */
-export async function discoverSchemas(pattern: string): Promise<DiscoveryResult> {
-  let files: string[];
+export async function discoverSchemas(
+  pattern: string,
+  options: DiscoverOptions = {}
+): Promise<DiscoveryResult> {
+  const { endpointsGlob, middlewareGlob } = options;
 
-  // Check if pattern is a direct file path (no glob characters)
-  const isGlobPattern = pattern.includes('*') || pattern.includes('?') || pattern.includes('[');
+  // Discover schema and endpoint files from main pattern
+  let files = await resolveGlobOrPath(pattern);
 
-  if (!isGlobPattern) {
-    // Direct file path - check if it exists
-    const resolvedPath = resolve(pattern);
-    try {
-      const fileStat = await stat(resolvedPath);
-      if (fileStat.isFile()) {
-        files = [resolvedPath];
-      } else {
-        throw new Error(`Path is not a file: ${pattern}`);
-      }
-    } catch (error) {
-      throw new Error(`Schema file not found: ${pattern}`);
-    }
-  } else {
-    // Glob pattern - find matching files
-    const { baseDir, patterns } = parseGlobPattern(pattern);
-    const resolvedBaseDir = resolve(baseDir);
-    files = await findFiles(resolvedBaseDir, patterns);
+  // Discover from separate endpoints glob if provided
+  if (endpointsGlob) {
+    const endpointFiles = await resolveGlobOrPath(endpointsGlob, { allowEmpty: true });
+    files = [...files, ...endpointFiles.filter(f => !files.includes(f))];
+  }
 
-    if (files.length === 0) {
-      throw new Error(`No schema files found matching: ${pattern}`);
-    }
+  if (files.length === 0) {
+    throw new Error(`No schema files found matching: ${pattern}`);
   }
 
   const schemas: EntitySchema[] = [];
@@ -234,11 +238,97 @@ export async function discoverSchemas(pattern: string): Promise<DiscoveryResult>
     }
   }
 
-  if (schemas.length === 0 && endpoints.length === 0) {
-    throw new Error('No schemas found. Make sure your schema files export defineData() or defineEndpoint() results.');
+  // Discover middleware from separate glob if provided
+  const middleware: MiddlewareSchema[] = [];
+  const middlewareFilesMap = new Map<string, string>();
+  const seenMiddlewareNames = new Set<string>();
+
+  if (middlewareGlob) {
+    const mwFiles = await resolveGlobOrPath(middlewareGlob, { allowEmpty: true });
+
+    for (const file of mwFiles) {
+      try {
+        const module = await import(file);
+
+        for (const [_exportName, value] of Object.entries(module)) {
+          if (isMiddlewareSchema(value)) {
+            // Deduplicate middleware by name
+            if (!seenMiddlewareNames.has(value.name)) {
+              seenMiddlewareNames.add(value.name);
+              middleware.push(value);
+              middlewareFilesMap.set(value.name, file);
+
+              if (!loadedFiles.includes(file)) {
+                loadedFiles.push(file);
+              }
+            } else {
+              console.warn(`Warning: Duplicate middleware '${value.name}' in ${file}`);
+            }
+          }
+        }
+      } catch (error) {
+        console.warn(`Warning: Could not import middleware from ${file}: ${error}`);
+      }
+    }
   }
 
-  return { schemas, endpoints, files: loadedFiles, endpointFiles };
+  if (schemas.length === 0 && endpoints.length === 0 && middleware.length === 0) {
+    throw new Error('No schemas found. Make sure your schema files export defineData(), defineEndpoint(), or defineMiddleware() results.');
+  }
+
+  return {
+    schemas,
+    endpoints,
+    middleware,
+    files: loadedFiles,
+    endpointFiles,
+    middlewareFiles: middlewareFilesMap,
+  };
+}
+
+/**
+ * Resolve a glob pattern or direct file path to a list of files
+ *
+ * @param pattern - Glob pattern or direct file path
+ * @param options - Options for resolution
+ * @returns Array of resolved file paths
+ */
+async function resolveGlobOrPath(
+  pattern: string,
+  options: { allowEmpty?: boolean } = {}
+): Promise<string[]> {
+  const { allowEmpty = false } = options;
+
+  // Check if pattern is a direct file path (no glob characters)
+  const isGlobPatternCheck = pattern.includes('*') || pattern.includes('?') || pattern.includes('[');
+
+  if (!isGlobPatternCheck) {
+    // Direct file path - check if it exists
+    const resolvedPath = resolve(pattern);
+    try {
+      const fileStat = await stat(resolvedPath);
+      if (fileStat.isFile()) {
+        return [resolvedPath];
+      } else {
+        if (allowEmpty) return [];
+        throw new Error(`Path is not a file: ${pattern}`);
+      }
+    } catch (error) {
+      if (allowEmpty) return [];
+      throw new Error(`File not found: ${pattern}`);
+    }
+  } else {
+    // Glob pattern - find matching files
+    const { baseDir, patterns } = parseGlobPattern(pattern);
+    const resolvedBaseDir = resolve(baseDir);
+    const files = await findFiles(resolvedBaseDir, patterns);
+
+    if (files.length === 0 && !allowEmpty) {
+      throw new Error(`No files found matching: ${pattern}`);
+    }
+
+    return files;
+  }
 }
 
 /**

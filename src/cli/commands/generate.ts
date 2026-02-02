@@ -6,12 +6,20 @@
  */
 
 import { mkdir, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { join, relative } from 'node:path';
 import { loadConfig } from '../config';
 import { discoverSchemas, getRelativePath } from '../discover';
 import { analyzeSchemas } from '../analyze';
 import { analyzeEndpoints } from '../analyze-endpoints';
-import type { SchemockConfig, AnalyzedSchema, AnalyzedEndpoint, GenerateOptions } from '../types';
+import { analyzeMiddleware } from '../analyze-middleware';
+import type {
+  SchemockConfig,
+  AnalyzedSchema,
+  AnalyzedEndpoint,
+  AnalyzedMiddleware,
+  GenerateOptions,
+  BackendFramework,
+} from '../types';
 
 // Generators
 import { generateTypes } from '../generators/types';
@@ -54,6 +62,15 @@ import {
   printEnvVarSummary,
 } from '../generators/env-example';
 
+// Unified generators (Phase 5+)
+import {
+  generateServices,
+  generateServicesIndex,
+  generateWithMiddleware,
+  generateUnifiedHandlers,
+  type HandlerTarget,
+} from '../generators/unified';
+
 /**
  * Check if a package is installed
  */
@@ -77,14 +94,26 @@ export async function generate(options: GenerateOptions): Promise<void> {
   // 1. Load config
   const config = await loadConfig(options.config);
 
-  // 2. Discover schemas and endpoints
+  // 2. Discover schemas, endpoints, and middleware
   console.log('📦 Discovering schemas...');
-  const { schemas, endpoints, files, endpointFiles } = await discoverSchemas(config.schemas);
+  const {
+    schemas,
+    endpoints,
+    middleware: middlewareSchemas,
+    files,
+    endpointFiles,
+    middlewareFiles,
+  } = await discoverSchemas(config.schemas, {
+    endpointsGlob: config.endpoints,
+    middlewareGlob: config.middlewareGlob,
+  });
 
   for (const file of files) {
     console.log(`   Found: ${getRelativePath(file)}`);
   }
-  console.log(`   Total: ${schemas.length} schemas, ${endpoints.length} endpoints\n`);
+  const middlewareCount = middlewareSchemas?.length ?? 0;
+  const middlewareInfo = middlewareCount > 0 ? `, ${middlewareCount} middleware` : '';
+  console.log(`   Total: ${schemas.length} schemas, ${endpoints.length} endpoints${middlewareInfo}\n`);
 
   // 3. Analyze schemas (use default adapter for analysis, targets can override)
   const adapter = (options.adapter || config.adapter || 'mock') as SchemockConfig['adapter'];
@@ -92,6 +121,11 @@ export async function generate(options: GenerateOptions): Promise<void> {
 
   // 4. Analyze endpoints
   const analyzedEndpoints = analyzeEndpoints(endpoints, endpointFiles);
+
+  // 4b. Analyze middleware (if discovered)
+  const analyzedMiddleware = middlewareSchemas?.length
+    ? analyzeMiddleware(middlewareSchemas, middlewareFiles)
+    : [];
 
   if (options.verbose) {
     console.log('📊 Analyzed schemas:');
@@ -105,6 +139,12 @@ export async function generate(options: GenerateOptions): Promise<void> {
       console.log('\n📊 Analyzed endpoints:');
       for (const endpoint of analyzedEndpoints) {
         console.log(`   ${endpoint.method} ${endpoint.path} -> ${endpoint.name}`);
+      }
+    }
+    if (analyzedMiddleware.length > 0) {
+      console.log('\n📊 Analyzed middleware:');
+      for (const mw of analyzedMiddleware) {
+        console.log(`   ${mw.name} (order: ${mw.order})`);
       }
     }
     console.log();
@@ -136,7 +176,13 @@ export async function generate(options: GenerateOptions): Promise<void> {
     }
   }
 
-  // 6. Check for multi-target configuration
+  // 6. Generate backend code if configured (new unified generation)
+  if (config.backend) {
+    console.log('🔧 Generating backend code (unified generation)...\n');
+    await generateBackendCode(analyzed, analyzedEndpoints, analyzedMiddleware, config, options);
+  }
+
+  // 7. Check for multi-target configuration
   if (effectiveTargets && effectiveTargets.length > 0) {
     console.log(`🎯 Multi-target generation mode (${effectiveTargets.length} targets)\n`);
 
@@ -520,4 +566,144 @@ async function writeOutput(path: string, content: string, dryRun?: boolean): Pro
     return;
   }
   await writeFile(path, content, 'utf-8');
+}
+
+/**
+ * Map backend framework to handler target
+ */
+function mapFrameworkToTarget(framework: BackendFramework): HandlerTarget {
+  const targetMap: Record<BackendFramework, HandlerTarget> = {
+    node: 'express',
+    nextjs: 'nextjs',
+    'supabase-edge': 'supabase-edge',
+    neon: 'express', // Neon uses standard Node.js/Express handlers
+  };
+  return targetMap[framework];
+}
+
+/**
+ * Generate backend code using unified generators
+ *
+ * This is the new (Phase 5+) generation flow that uses:
+ * - Service layer (RLS enforcement, business logic)
+ * - Middleware helpers (auth, context extraction)
+ * - Unified handlers (route handlers with middleware)
+ */
+async function generateBackendCode(
+  schemas: AnalyzedSchema[],
+  endpoints: AnalyzedEndpoint[],
+  middleware: AnalyzedMiddleware[],
+  config: SchemockConfig,
+  options: GenerateOptions
+): Promise<void> {
+  const backend = config.backend!;
+  const target = mapFrameworkToTarget(backend.framework);
+
+  // Create output directories
+  if (!options.dryRun) {
+    await mkdir(backend.output, { recursive: true });
+    if (backend.services) {
+      await mkdir(backend.services.output, { recursive: true });
+    }
+    if (backend.routes) {
+      await mkdir(backend.routes.output, { recursive: true });
+    }
+  }
+
+  // 1. Generate services if configured
+  if (backend.services) {
+    console.log('📝 Generating service layer...');
+
+    // generateServices returns a Map of entity name -> service code
+    const servicesMap = generateServices(schemas, {
+      dbImport: backend.services.dbImport,
+      typesImport: '../types',
+      includeRLS: true,
+    });
+
+    // Write each service to its own file
+    for (const [serviceName, serviceCode] of servicesMap) {
+      await writeOutput(
+        join(backend.services.output, `${serviceName}.service.ts`),
+        serviceCode,
+        options.dryRun
+      );
+    }
+    const entityCount = servicesMap.size;
+    console.log(`   ✓ ${entityCount} service files (with RLS enforcement)`);
+
+    // Generate services index
+    const indexCode = generateServicesIndex(schemas);
+    await writeOutput(
+      join(backend.services.output, 'index.ts'),
+      indexCode,
+      options.dryRun
+    );
+    console.log('   ✓ index.ts (barrel exports)\n');
+  }
+
+  // 2. Generate middleware helper
+  console.log('🔐 Generating middleware helper...');
+  const middlewareCode = generateWithMiddleware(schemas, {
+    target,
+    includeJwtExtraction: true,
+    middlewareImport: backend.middlewareImport,
+  });
+  await writeOutput(
+    join(backend.output, 'middleware.ts'),
+    middlewareCode,
+    options.dryRun
+  );
+  console.log(`   ✓ middleware.ts (withMiddleware, context extraction)\n`);
+
+  // 3. Generate handlers
+  console.log('🚀 Generating route handlers...');
+
+  // Filter schemas by skipEntities if configured
+  let filteredSchemas = schemas;
+  if (backend.routes?.skipEntities?.length) {
+    const skipSet = new Set(backend.routes.skipEntities);
+    filteredSchemas = schemas.filter((s) => !skipSet.has(s.name));
+    if (filteredSchemas.length < schemas.length) {
+      console.log(`   Skipping entities: ${backend.routes.skipEntities.join(', ')}`);
+    }
+  }
+
+  const handlersCode = generateUnifiedHandlers(filteredSchemas, endpoints, {
+    target,
+    servicesImport: backend.services
+      ? getRelativeImport(backend.routes?.output ?? backend.output, backend.services.output)
+      : './services',
+    middlewareImport: './middleware',
+    typesImport: '../types',
+    apiPrefix: config.apiPrefix,
+    skip: backend.routes?.skip,
+    includeEndpoints: endpoints.length > 0,
+  });
+
+  const handlersPath = backend.routes
+    ? join(backend.routes.output, 'handlers.ts')
+    : join(backend.output, 'handlers.ts');
+
+  await writeOutput(handlersPath, handlersCode, options.dryRun);
+
+  const handlerCount = filteredSchemas.filter((s) => !s.isJunctionTable).length * 5; // 5 operations per entity
+  const endpointInfo = endpoints.length > 0 ? ` + ${endpoints.length} custom endpoints` : '';
+  console.log(`   ✓ handlers.ts (${handlerCount} handlers${endpointInfo})`);
+
+  console.log(`\n✅ Backend code generated in ${backend.output}\n`);
+}
+
+/**
+ * Get relative import path from one directory to another
+ */
+function getRelativeImport(fromDir: string, toDir: string): string {
+  let rel = relative(fromDir, toDir);
+
+  // Ensure it starts with . or ..
+  if (!rel.startsWith('.') && !rel.startsWith('..')) {
+    rel = './' + rel;
+  }
+
+  return rel;
 }

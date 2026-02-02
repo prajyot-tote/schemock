@@ -123,6 +123,27 @@ const FrontendConfigSchema = z.object({
 }).strict();
 
 /**
+ * Zod schema for BackendServicesConfig validation (v1.0)
+ */
+const BackendServicesConfigSchema = z.object({
+  output: z.string().min(1, 'services output path is required'),
+  dbImport: z.string().min(1, 'dbImport path is required'),
+}).strict();
+
+/**
+ * Zod schema for BackendRoutesConfig validation (v1.0)
+ */
+const BackendRoutesConfigSchema = z.object({
+  output: z.string().min(1, 'routes output path is required'),
+  overwrite: z.boolean().optional().default(false),
+  skip: z.array(z.string().regex(
+    /^(GET|POST|PUT|PATCH|DELETE)\s+\/.+$/,
+    "Route skip format must be 'METHOD /path' (e.g., 'DELETE /api/users/:id')"
+  )).optional(),
+  skipEntities: z.array(z.string()).optional(),
+}).strict();
+
+/**
  * Zod schema for BackendConfig validation (v1.0)
  */
 const BackendConfigSchema = z.object({
@@ -132,6 +153,9 @@ const BackendConfigSchema = z.object({
     type: z.enum(['postgres', 'supabase', 'neon']),
     connectionEnvVar: z.string().optional(),
   }).optional(),
+  services: BackendServicesConfigSchema.optional(),
+  routes: BackendRoutesConfigSchema.optional(),
+  middlewareImport: z.string().optional(),
 }).strict();
 
 /**
@@ -239,6 +263,8 @@ const ProductionSeedConfigSchema = z.object({
  */
 const SchemockConfigSchema = z.object({
   schemas: z.string().min(1, 'schemas path is required'),
+  endpoints: z.string().optional(),
+  middlewareGlob: z.string().optional(),
   output: z.string().min(1, 'output path is required'),
   adapter: z.enum(['mock', 'supabase', 'firebase', 'fetch', 'graphql', 'pglite']),
   apiPrefix: z.string(),

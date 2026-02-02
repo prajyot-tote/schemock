@@ -180,6 +180,137 @@ describe('Unified Handler Generator', () => {
         expect(code).not.toContain('function decodeJwtPayload');
       });
     });
+
+    describe('middleware wiring', () => {
+      // Helper to create a fresh schema with middleware for each test
+      function createProductSchemaWithMiddleware() {
+        const schemaWithMiddleware = defineData('product', {
+          id: field.uuid(),
+          name: field.string(),
+          price: field.number(),
+          tenantId: field.uuid(),
+        }, {
+          rls: {
+            scope: [{ field: 'tenantId', contextKey: 'tenantId' }],
+          },
+        });
+        const schemasWithMiddleware = analyzeSchemas([schemaWithMiddleware], { apiPrefix: '/api' });
+        const productSchema = schemasWithMiddleware.find(s => s.name === 'product')!;
+        return { schemasWithMiddleware, productSchema };
+      }
+
+      it('should generate imports for middleware from middlewareImport config', () => {
+        const { schemasWithMiddleware, productSchema } = createProductSchemaWithMiddleware();
+        productSchema.middleware = [
+          { name: 'auth', pascalName: 'Auth', hasConfigOverrides: false, sourceFile: '@/middleware' },
+          { name: 'tenant', pascalName: 'Tenant', hasConfigOverrides: false, sourceFile: '@/middleware' },
+        ];
+        productSchema.endpointMiddleware = {
+          delete: [
+            { name: 'admin', pascalName: 'Admin', hasConfigOverrides: false },
+          ],
+        };
+
+        const code = generateWithMiddleware(schemasWithMiddleware, {
+          target: 'msw',
+          middlewareImport: '@/middleware',
+        });
+
+        expect(code).toContain("import { authMiddleware, tenantMiddleware, adminMiddleware } from '@/middleware'");
+      });
+
+      it('should generate imports grouped by source file when no middlewareImport', () => {
+        const { schemasWithMiddleware, productSchema } = createProductSchemaWithMiddleware();
+        productSchema.middleware = [
+          { name: 'auth', pascalName: 'Auth', hasConfigOverrides: false, sourceFile: './middleware/auth' },
+          { name: 'tenant', pascalName: 'Tenant', hasConfigOverrides: false, sourceFile: './middleware/tenant' },
+        ];
+
+        const code = generateWithMiddleware(schemasWithMiddleware, { target: 'msw' });
+
+        expect(code).toContain("import { authMiddleware } from './middleware/auth'");
+        expect(code).toContain("import { tenantMiddleware } from './middleware/tenant'");
+      });
+
+      it('should generate actual middleware arrays in config', () => {
+        const { schemasWithMiddleware, productSchema } = createProductSchemaWithMiddleware();
+        productSchema.middleware = [
+          { name: 'auth', pascalName: 'Auth', hasConfigOverrides: false },
+          { name: 'tenant', pascalName: 'Tenant', hasConfigOverrides: false },
+        ];
+
+        const code = generateWithMiddleware(schemasWithMiddleware, {
+          target: 'msw',
+          middlewareImport: '@/middleware',
+        });
+
+        expect(code).toContain('default: [authMiddleware, tenantMiddleware]');
+      });
+
+      it('should handle empty middleware arrays for public endpoints', () => {
+        const { schemasWithMiddleware, productSchema } = createProductSchemaWithMiddleware();
+        productSchema.middleware = [
+          { name: 'auth', pascalName: 'Auth', hasConfigOverrides: false },
+        ];
+        productSchema.endpointMiddleware = {
+          list: [],  // Public list endpoint
+        };
+
+        const code = generateWithMiddleware(schemasWithMiddleware, {
+          target: 'msw',
+          middlewareImport: '@/middleware',
+        });
+
+        expect(code).toContain('list: []');
+      });
+
+      it('should generate per-operation middleware overrides', () => {
+        const { schemasWithMiddleware, productSchema } = createProductSchemaWithMiddleware();
+        productSchema.middleware = [
+          { name: 'auth', pascalName: 'Auth', hasConfigOverrides: false },
+        ];
+        productSchema.endpointMiddleware = {
+          delete: [
+            { name: 'auth', pascalName: 'Auth', hasConfigOverrides: false },
+            { name: 'admin', pascalName: 'Admin', hasConfigOverrides: false },
+          ],
+        };
+
+        const code = generateWithMiddleware(schemasWithMiddleware, {
+          target: 'msw',
+          middlewareImport: '@/middleware',
+        });
+
+        expect(code).toContain('delete: [authMiddleware, adminMiddleware]');
+      });
+
+      it('should generate .with() calls for config overrides', () => {
+        const { schemasWithMiddleware, productSchema } = createProductSchemaWithMiddleware();
+        productSchema.middleware = [
+          {
+            name: 'rateLimit',
+            pascalName: 'RateLimit',
+            hasConfigOverrides: true,
+            configOverrides: { max: 10, windowMs: 60000 },
+          },
+        ];
+
+        const code = generateWithMiddleware(schemasWithMiddleware, {
+          target: 'msw',
+          middlewareImport: '@/middleware',
+        });
+
+        expect(code).toContain('rateLimitMiddleware.with({"max":10,"windowMs":60000})');
+      });
+
+      it('should not generate imports when no middleware configured', () => {
+        const code = generateWithMiddleware(schemas, { target: 'msw' });
+
+        // schemas (user, post) have no middleware configured
+        expect(code).not.toContain("import { authMiddleware");
+        expect(code).not.toContain("import { tenantMiddleware");
+      });
+    });
   });
 
   describe('generateUnifiedHandlers', () => {

@@ -172,6 +172,30 @@ export interface FrontendConfig {
 }
 
 /**
+ * Backend services configuration
+ */
+export interface BackendServicesConfig {
+  /** Output directory for service files */
+  output: string;
+  /** Module path for DB import in services (e.g., '@/lib/db') */
+  dbImport: string;
+}
+
+/**
+ * Backend routes configuration
+ */
+export interface BackendRoutesConfig {
+  /** Output directory for route files */
+  output: string;
+  /** Overwrite existing route files (default: false) */
+  overwrite?: boolean;
+  /** Routes to skip generation: 'METHOD /path' format (e.g., 'DELETE /api/users/:id') */
+  skip?: string[];
+  /** Entities to skip entirely */
+  skipEntities?: string[];
+}
+
+/**
  * Backend configuration
  */
 export interface BackendConfig {
@@ -186,6 +210,12 @@ export interface BackendConfig {
     /** Environment variable for connection string */
     connectionEnvVar?: string;
   };
+  /** Services generation configuration */
+  services?: BackendServicesConfig;
+  /** Routes generation configuration */
+  routes?: BackendRoutesConfig;
+  /** Path to import user middleware from (e.g., '@/middleware') */
+  middlewareImport?: string;
 }
 
 /**
@@ -365,6 +395,10 @@ export interface SeedResult {
 export interface SchemockConfig {
   /** Schema discovery glob pattern */
   schemas: string;
+  /** Glob pattern for custom endpoints discovery */
+  endpoints?: string;
+  /** Glob pattern for middleware discovery */
+  middlewareGlob?: string;
   /** Output directory (used when targets is not specified) */
   output: string;
   /** Default adapter type (used when targets is not specified) */
