@@ -1,6 +1,6 @@
 {
   "name": "schemock",
-  "version": "0.1.0-alpha.25",
+  "version": "0.1.0-alpha.26",
   "description": "Schema-first code generation for frontend developers. Generate TypeScript types, API clients, React hooks, Next.js routes, and Node.js handlers from a single schema.",
   "keywords": [
     "schema",
