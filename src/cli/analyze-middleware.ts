@@ -408,6 +408,7 @@ function analyzeMiddlewareItem(
     localFunctions,
     order: middleware.order,
     description: middleware.description,
+    requiredHeaders: middleware.requiredHeaders,
   };
 }
 

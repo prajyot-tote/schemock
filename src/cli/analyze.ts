@@ -5,8 +5,9 @@
  * @category CLI
  */
 
-import type { EntitySchema, FieldDefinition, RelationDefinition, RLSConfig, IndexConfig, RPCConfig } from '../schema/types';
-import type { SchemockConfig, AnalyzedSchema, AnalyzedField, AnalyzedRelation, AnalyzedComputed, AnalyzedRLS, AnalyzedIndex, AnalyzedRPC } from './types';
+import type { EntitySchema, FieldDefinition, RelationDefinition, RLSConfig, IndexConfig, RPCConfig, EntityEndpointsConfig } from '../schema/types';
+import type { SchemockConfig, AnalyzedSchema, AnalyzedField, AnalyzedRelation, AnalyzedComputed, AnalyzedRLS, AnalyzedIndex, AnalyzedRPC, AnalyzedMiddleware, AnalyzedMiddlewareRef, AnalyzedEndpointMiddleware } from './types';
+import { resolveMiddlewareRefs } from './analyze-utils';
 import { pluralize, singularize, toPascalCase, toSnakeCase } from './utils/pluralize';
 import { fieldToFakerCall } from './utils/faker-mapping';
 import { fieldToTsType, primitiveToTs } from './utils/type-mapping';
@@ -199,24 +200,74 @@ function findSchemaByName(
  *
  * @param schemas - Raw entity schemas
  * @param config - Schemock configuration
+ * @param middlewareMap - Optional map of middleware names to analyzed middleware (for resolving middleware references)
  * @returns Analyzed schemas sorted by dependencies (topological order)
  *
  * @example
  * ```typescript
  * const analyzed = analyzeSchemas([userSchema, postSchema], config);
  * // Returns schemas sorted so dependencies come first
+ *
+ * // With middleware resolution
+ * const analyzedWithMiddleware = analyzeSchemas([userSchema, postSchema], config, middlewareMap);
+ * // Middleware references are fully resolved with links to analyzed middleware
  * ```
  */
-export function analyzeSchemas(schemas: EntitySchema[], config: SchemockConfig): AnalyzedSchema[] {
+export function analyzeSchemas(
+  schemas: EntitySchema[],
+  config: SchemockConfig,
+  middlewareMap?: Map<string, AnalyzedMiddleware>
+): AnalyzedSchema[] {
   const schemaMap = new Map(schemas.map((s) => [s.name, s]));
   const analyzed: AnalyzedSchema[] = [];
 
   for (const schema of schemas) {
-    analyzed.push(analyzeSchema(schema, schemaMap, config));
+    analyzed.push(analyzeSchema(schema, schemaMap, config, middlewareMap));
   }
 
   // Sort by dependencies (schemas with no deps first)
   return topologicalSort(analyzed);
+}
+
+/**
+ * Analyze per-operation endpoint middleware configuration
+ *
+ * @param endpoints - Entity endpoints configuration
+ * @param middlewareMap - Optional map of middleware names to analyzed middleware
+ * @returns Analyzed endpoint middleware, or undefined if no operations were configured
+ */
+function analyzeEndpointMiddleware(
+  endpoints: EntityEndpointsConfig | undefined,
+  middlewareMap?: Map<string, AnalyzedMiddleware>
+): AnalyzedEndpointMiddleware | undefined {
+  if (!endpoints) return undefined;
+
+  const result: AnalyzedEndpointMiddleware = {};
+  let hasConfig = false;
+
+  if (endpoints.list?.middleware !== undefined) {
+    result.list = resolveMiddlewareRefs(endpoints.list.middleware, middlewareMap) ?? [];
+    hasConfig = true;
+  }
+  if (endpoints.get?.middleware !== undefined) {
+    result.get = resolveMiddlewareRefs(endpoints.get.middleware, middlewareMap) ?? [];
+    hasConfig = true;
+  }
+  if (endpoints.create?.middleware !== undefined) {
+    result.create = resolveMiddlewareRefs(endpoints.create.middleware, middlewareMap) ?? [];
+    hasConfig = true;
+  }
+  if (endpoints.update?.middleware !== undefined) {
+    result.update = resolveMiddlewareRefs(endpoints.update.middleware, middlewareMap) ?? [];
+    hasConfig = true;
+  }
+  if (endpoints.delete?.middleware !== undefined) {
+    result.delete = resolveMiddlewareRefs(endpoints.delete.middleware, middlewareMap) ?? [];
+    hasConfig = true;
+  }
+
+  // Return undefined if no operations were configured
+  return hasConfig ? result : undefined;
 }
 
 /**
@@ -225,7 +276,8 @@ export function analyzeSchemas(schemas: EntitySchema[], config: SchemockConfig):
 function analyzeSchema(
   schema: EntitySchema,
   schemaMap: Map<string, EntitySchema>,
-  config: SchemockConfig
+  config: SchemockConfig,
+  middlewareMap?: Map<string, AnalyzedMiddleware>
 ): AnalyzedSchema {
   // Compute both singular and plural forms (handles both user->users and users->users)
   const singular = singularize(schema.name);
@@ -268,6 +320,10 @@ function analyzeSchema(
     module: schema.module,
     group: schema.group,
     metadata: schema.metadata,
+
+    // Middleware Configuration
+    middleware: resolveMiddlewareRefs(schema.middleware, middlewareMap),
+    endpointMiddleware: analyzeEndpointMiddleware(schema.endpoints, middlewareMap),
 
     original: schema,
   };

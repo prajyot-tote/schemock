@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { analyzeSchemas } from './analyze';
-import { defineData, field, belongsTo, hasMany } from '../schema';
+import { defineData, field, belongsTo, hasMany, defineMiddleware } from '../schema';
+import type { AnalyzedMiddleware } from './types';
 
 describe('findForeignKeyField', () => {
   describe('ref field target matching', () => {
@@ -179,6 +180,204 @@ describe('findForeignKeyField', () => {
       const eventsRelation = configSchema?.relations.find(r => r.name === 'events');
 
       expect(eventsRelation?.foreignKey).toBe('config_id');
+    });
+  });
+});
+
+describe('analyzeSchemas middleware extraction', () => {
+  // Create test middleware schemas
+  const authMiddleware = defineMiddleware('auth', {
+    config: {
+      required: field.boolean().default(true),
+    },
+    handler: async ({ ctx, config, next }) => {
+      return next();
+    },
+  });
+
+  const rateLimitMiddleware = defineMiddleware('rate-limit', {
+    config: {
+      max: field.number().default(100),
+    },
+    handler: async ({ ctx, config, next }) => {
+      return next();
+    },
+  });
+
+  const adminMiddleware = defineMiddleware('admin', {
+    config: {},
+    handler: async ({ ctx, config, next }) => {
+      return next();
+    },
+  });
+
+  describe('entity-level middleware', () => {
+    it('should extract middleware from entity schema', () => {
+      const user = defineData('user', {
+        name: field.string(),
+        email: field.email(),
+      }, {
+        middleware: [authMiddleware, rateLimitMiddleware],
+      });
+
+      const schemas = [user];
+      const analyzed = analyzeSchemas(schemas, {});
+      const userSchema = analyzed.find(s => s.name === 'user');
+
+      expect(userSchema?.middleware).toBeDefined();
+      expect(userSchema?.middleware).toHaveLength(2);
+      expect(userSchema?.middleware![0].name).toBe('auth');
+      expect(userSchema?.middleware![0].pascalName).toBe('Auth');
+      expect(userSchema?.middleware![0].hasConfigOverrides).toBe(false);
+      expect(userSchema?.middleware![1].name).toBe('rate-limit');
+      expect(userSchema?.middleware![1].pascalName).toBe('RateLimit');
+    });
+
+    it('should extract middleware with .with() config overrides', () => {
+      const user = defineData('user', {
+        name: field.string(),
+      }, {
+        middleware: [authMiddleware, rateLimitMiddleware.with({ max: 10 })],
+      });
+
+      const schemas = [user];
+      const analyzed = analyzeSchemas(schemas, {});
+      const userSchema = analyzed.find(s => s.name === 'user');
+
+      expect(userSchema?.middleware).toBeDefined();
+      expect(userSchema?.middleware).toHaveLength(2);
+
+      // First middleware: direct reference
+      expect(userSchema?.middleware![0].hasConfigOverrides).toBe(false);
+
+      // Second middleware: configured with .with()
+      expect(userSchema?.middleware![1].name).toBe('rate-limit');
+      expect(userSchema?.middleware![1].hasConfigOverrides).toBe(true);
+      expect(userSchema?.middleware![1].configOverrides).toEqual({ max: 10 });
+    });
+
+    it('should return undefined middleware for entities without middleware config', () => {
+      const user = defineData('user', {
+        name: field.string(),
+      });
+
+      const schemas = [user];
+      const analyzed = analyzeSchemas(schemas, {});
+      const userSchema = analyzed.find(s => s.name === 'user');
+
+      expect(userSchema?.middleware).toBeUndefined();
+    });
+  });
+
+  describe('per-operation endpoint middleware', () => {
+    it('should extract per-operation middleware configuration', () => {
+      const user = defineData('user', {
+        name: field.string(),
+      }, {
+        middleware: [authMiddleware], // Default middleware
+        endpoints: {
+          list: { middleware: [] }, // Public list
+          delete: { middleware: [authMiddleware, adminMiddleware] }, // Admin only
+        },
+      });
+
+      const schemas = [user];
+      const analyzed = analyzeSchemas(schemas, {});
+      const userSchema = analyzed.find(s => s.name === 'user');
+
+      // Default middleware
+      expect(userSchema?.middleware).toHaveLength(1);
+      expect(userSchema?.middleware![0].name).toBe('auth');
+
+      // Per-operation middleware
+      expect(userSchema?.endpointMiddleware).toBeDefined();
+      expect(userSchema?.endpointMiddleware?.list).toEqual([]); // Public (empty array)
+      expect(userSchema?.endpointMiddleware?.delete).toHaveLength(2);
+      expect(userSchema?.endpointMiddleware?.delete![0].name).toBe('auth');
+      expect(userSchema?.endpointMiddleware?.delete![1].name).toBe('admin');
+    });
+
+    it('should only include operations that are explicitly configured', () => {
+      const user = defineData('user', {
+        name: field.string(),
+      }, {
+        endpoints: {
+          list: { middleware: [] },
+        },
+      });
+
+      const schemas = [user];
+      const analyzed = analyzeSchemas(schemas, {});
+      const userSchema = analyzed.find(s => s.name === 'user');
+
+      expect(userSchema?.endpointMiddleware).toBeDefined();
+      expect(userSchema?.endpointMiddleware?.list).toEqual([]);
+      expect(userSchema?.endpointMiddleware?.get).toBeUndefined();
+      expect(userSchema?.endpointMiddleware?.create).toBeUndefined();
+      expect(userSchema?.endpointMiddleware?.update).toBeUndefined();
+      expect(userSchema?.endpointMiddleware?.delete).toBeUndefined();
+    });
+
+    it('should return undefined endpointMiddleware for entities without endpoints config', () => {
+      const user = defineData('user', {
+        name: field.string(),
+      });
+
+      const schemas = [user];
+      const analyzed = analyzeSchemas(schemas, {});
+      const userSchema = analyzed.find(s => s.name === 'user');
+
+      expect(userSchema?.endpointMiddleware).toBeUndefined();
+    });
+
+    it('should handle .with() config in endpoint middleware', () => {
+      const user = defineData('user', {
+        name: field.string(),
+      }, {
+        endpoints: {
+          list: { middleware: [rateLimitMiddleware.with({ max: 1000 })] },
+          create: { middleware: [rateLimitMiddleware.with({ max: 10 })] },
+        },
+      });
+
+      const schemas = [user];
+      const analyzed = analyzeSchemas(schemas, {});
+      const userSchema = analyzed.find(s => s.name === 'user');
+
+      expect(userSchema?.endpointMiddleware?.list).toHaveLength(1);
+      expect(userSchema?.endpointMiddleware?.list![0].configOverrides).toEqual({ max: 1000 });
+
+      expect(userSchema?.endpointMiddleware?.create).toHaveLength(1);
+      expect(userSchema?.endpointMiddleware?.create![0].configOverrides).toEqual({ max: 10 });
+    });
+  });
+
+  describe('middleware map linking', () => {
+    it('should link middleware references to analyzed middleware when map is provided', () => {
+      // Create analyzed middleware map
+      const middlewareMap = new Map<string, AnalyzedMiddleware>([
+        ['auth', {
+          name: 'auth',
+          pascalName: 'Auth',
+          configFields: [{ name: 'required', type: 'boolean', tsType: 'boolean', hasDefault: true, default: true, nullable: false }],
+          handlerSource: '',
+          order: 'normal',
+        }],
+      ]);
+
+      const user = defineData('user', {
+        name: field.string(),
+      }, {
+        middleware: [authMiddleware],
+      });
+
+      const schemas = [user];
+      const analyzed = analyzeSchemas(schemas, {}, middlewareMap);
+      const userSchema = analyzed.find(s => s.name === 'user');
+
+      expect(userSchema?.middleware![0].middleware).toBeDefined();
+      expect(userSchema?.middleware![0].middleware?.name).toBe('auth');
+      expect(userSchema?.middleware![0].middleware?.configFields).toHaveLength(1);
     });
   });
 });

@@ -656,6 +656,12 @@ export interface AnalyzedSchema {
   /** Extensible metadata */
   metadata?: Record<string, unknown>;
 
+  // Middleware Configuration
+  /** Default middleware for all CRUD operations */
+  middleware?: AnalyzedMiddlewareRef[];
+  /** Per-operation middleware (resolved from endpoints config) */
+  endpointMiddleware?: AnalyzedEndpointMiddleware;
+
   // Original schema reference
   original: EntitySchema;
 }
@@ -750,6 +756,49 @@ export interface AnalyzedEndpoint {
   localFunctions?: LocalFunction[];
   /** Description */
   description?: string;
+  /** Middleware to apply to this endpoint */
+  middleware?: AnalyzedMiddlewareRef[];
+}
+
+// ============================================================================
+// Analyzed Middleware Reference Types
+// ============================================================================
+
+/**
+ * Analyzed middleware reference - resolved from MiddlewareReference.
+ * Includes both the middleware info and any config overrides.
+ * Used for entity and endpoint middleware configuration.
+ */
+export interface AnalyzedMiddlewareRef {
+  /** Middleware name */
+  name: string;
+  /** PascalCase name */
+  pascalName: string;
+  /** Source file path for import */
+  sourceFile?: string;
+  /** Whether this has config overrides via .with() */
+  hasConfigOverrides: boolean;
+  /** Config override values (from .with()) */
+  configOverrides?: Record<string, unknown>;
+  /** Reference to full analyzed middleware (if available) */
+  middleware?: AnalyzedMiddleware;
+}
+
+/**
+ * Per-operation middleware configuration for an entity.
+ * Each CRUD operation can have its own middleware chain.
+ */
+export interface AnalyzedEndpointMiddleware {
+  /** Middleware for list operation */
+  list?: AnalyzedMiddlewareRef[];
+  /** Middleware for get operation */
+  get?: AnalyzedMiddlewareRef[];
+  /** Middleware for create operation */
+  create?: AnalyzedMiddlewareRef[];
+  /** Middleware for update operation */
+  update?: AnalyzedMiddlewareRef[];
+  /** Middleware for delete operation */
+  delete?: AnalyzedMiddlewareRef[];
 }
 
 // ============================================================================
@@ -806,6 +855,8 @@ export interface AnalyzedMiddleware {
   order: 'early' | 'normal' | 'late';
   /** Description */
   description?: string;
+  /** Headers required by this middleware */
+  requiredHeaders?: string[];
 }
 
 // ============================================================================

@@ -9,7 +9,8 @@
 
 import { readFileSync } from 'node:fs';
 import type { EndpointSchema, FieldDefinition } from '../schema/types';
-import type { AnalyzedEndpoint, AnalyzedEndpointField, ResolverDependency, LocalFunction } from './types';
+import type { AnalyzedEndpoint, AnalyzedEndpointField, ResolverDependency, LocalFunction, AnalyzedMiddleware, AnalyzedMiddlewareRef } from './types';
+import { resolveMiddlewareRefs } from './analyze-utils';
 
 /**
  * Cache for parsed source file imports
@@ -323,16 +324,18 @@ function isContextProperty(name: string): boolean {
  *
  * @param endpoints - Array of endpoint schemas from discovery
  * @param endpointFiles - Optional map of endpoint paths to their source file paths
+ * @param middlewareMap - Optional map of middleware names to analyzed middleware (for resolving middleware references)
  * @returns Array of analyzed endpoints ready for code generation
  */
 export function analyzeEndpoints(
   endpoints: EndpointSchema[],
-  endpointFiles?: Map<string, string>
+  endpointFiles?: Map<string, string>,
+  middlewareMap?: Map<string, AnalyzedMiddleware>
 ): AnalyzedEndpoint[] {
   // Clear stale caches from previous runs to prevent stale data
   clearAnalysisCaches();
 
-  return endpoints.map((endpoint) => analyzeEndpoint(endpoint, endpointFiles));
+  return endpoints.map((endpoint) => analyzeEndpoint(endpoint, endpointFiles, middlewareMap));
 }
 
 /**
@@ -340,7 +343,8 @@ export function analyzeEndpoints(
  */
 function analyzeEndpoint(
   endpoint: EndpointSchema,
-  endpointFiles?: Map<string, string>
+  endpointFiles?: Map<string, string>,
+  middlewareMap?: Map<string, AnalyzedMiddleware>
 ): AnalyzedEndpoint {
   // Derive name from path
   const name = deriveEndpointName(endpoint.path);
@@ -427,6 +431,7 @@ function analyzeEndpoint(
     resolverDependencies,
     localFunctions,
     description: endpoint.description,
+    middleware: resolveMiddlewareRefs(endpoint.middleware, middlewareMap),
   };
 }
 
