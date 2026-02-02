@@ -7,15 +7,16 @@
 // NOTE: If your inline resolvers use external functions (e.g., hashPassword, generateToken),
 // consider using named exported functions instead - they will be automatically imported.
 
-import type { Database } from './db';
 import type * as Types from './types';
 
 // Base resolver context with typed database access
 export interface ResolverContext<TParams = Record<string, unknown>, TBody = Record<string, unknown>> {
   params: TParams;
   body: TBody;
-  db: Database;
+  db: any;
   headers: Record<string, string>;
+  /** Context populated by middleware (e.g., auth middleware adds userId, role) */
+  context?: Record<string, unknown>;
 }
 
 // Per-endpoint typed resolver contexts
@@ -57,7 +58,7 @@ export const endpointResolvers: EndpointResolvers = {
   // Delete multiple posts at once
   postsBulkDelete: async ({ body, db }: PostsBulkDeleteResolverContext) => {
     let deleted = 0;
-    const failed           = [];
+    const failed = [];
 
     for (const id of body.ids) {
       try {
@@ -106,15 +107,15 @@ export const endpointResolvers: EndpointResolvers = {
     return {
       postCount: posts.length,
       commentCount: comments.length,
-      totalViews: posts.reduce((sum        , p     ) => sum + (p.views || 0), 0),
-      publishedPosts: posts.filter((p     ) => p.published).length,
+      totalViews: posts.reduce((sum , p ) => sum + (p.views || 0), 0),
+      publishedPosts: posts.filter((p ) => p.published).length,
     };
   },
 
   // GET /api/search
   // Search across users and posts
   search: async ({ params, db }: SearchResolverContext) => {
-    const results = { users: []         , posts: []         , total: 0 };
+    const results = { users: [] , posts: [] , total: 0 };
     const query = params.q?.toLowerCase() ?? '';
 
     if (params.type === 'all' || params.type === 'user') {
@@ -125,7 +126,7 @@ export const endpointResolvers: EndpointResolvers = {
         },
         take: params.limit,
       });
-      results.users = users.map((u     ) => ({
+      results.users = users.map((u ) => ({
         id: u.id,
         name: u.name,
         email: u.email,
@@ -140,7 +141,7 @@ export const endpointResolvers: EndpointResolvers = {
         },
         take: params.limit,
       });
-      results.posts = posts.map((p     ) => {
+      results.posts = posts.map((p ) => {
         const author = db.user.findFirst({ where: { id: { equals: p.authorId } } });
         return {
           id: p.id,

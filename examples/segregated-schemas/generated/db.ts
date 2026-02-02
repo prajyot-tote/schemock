@@ -40,7 +40,7 @@ export const db = factory({
     views: nullable(() => faker.number.float({ min: 0, max: 1000, fractionDigits: 2 })),
     createdAt: nullable(() => faker.date.recent()),
     author: nullable(() => JSON.stringify(({ id: faker.string.uuid(), name: faker.lorem.word(), avatar: faker.lorem.word() }))),
-    comments: nullable(() => JSON.stringify(Array.from({ length: faker.number.int({ min: 1, max: 5 }) }, () => ({ id: faker.string.uuid(), content: faker.lorem.word(), createdAt: faker.date.recent(), author: ({ id: faker.string.uuid(), name: faker.lorem.word() }) })))),
+    comments: nullable(() => Array.from({ length: faker.number.int({ min: 1, max: 5 }) }, () => ({ id: faker.string.uuid(), content: faker.lorem.word(), createdAt: faker.date.recent(), author: ({ id: faker.string.uuid(), name: faker.lorem.word() }) }))),
     commentCount: nullable(() => faker.number.float({ min: 0, max: 1000, fractionDigits: 2 })),
   },
   userProfile: {
@@ -50,7 +50,7 @@ export const db = factory({
     avatar: nullable(() => faker.lorem.word()),
     role: nullable(() => faker.helpers.arrayElement(['admin', 'user', 'guest'])),
     stats: nullable(() => JSON.stringify(({ postCount: faker.number.float({ min: 0, max: 1000, fractionDigits: 2 }), commentCount: faker.number.float({ min: 0, max: 1000, fractionDigits: 2 }), totalViews: faker.number.float({ min: 0, max: 1000, fractionDigits: 2 }) }))),
-    recentPosts: nullable(() => JSON.stringify(Array.from({ length: faker.number.int({ min: 1, max: 5 }) }, () => ({ id: faker.string.uuid(), title: faker.lorem.word(), published: faker.datatype.boolean(), createdAt: faker.date.recent() })))),
+    recentPosts: nullable(() => Array.from({ length: faker.number.int({ min: 1, max: 5 }) }, () => ({ id: faker.string.uuid(), title: faker.lorem.word(), published: faker.datatype.boolean(), createdAt: faker.date.recent() }))),
   },
 });
 

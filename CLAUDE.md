@@ -16,6 +16,21 @@ This applies to ALL plugin paths:
 - Any other plugin cache directories
 
 
+## CRITICAL: Project Boundary - View Only Outside This Folder
+
+**Only modify files within this project folder** (`/Users/prajyot/Documents/Work/Matt/schemock/`).
+
+Files outside this folder are **VIEW ONLY**:
+- You MAY read files in other projects for reference
+- You MUST NOT edit, write, or modify files outside this project
+- If a task requires changes to another project, **STOP** and ask the user to do it
+
+This applies to all external paths including:
+- `/Users/prajyot/Documents/LaunchSecure/**`
+- Any other project directories
+- System files, config files outside this repo
+
+
 ## Project Overview
 
 Schemock is a TypeScript library that enables frontend developers to work independently with realistic mock data while maintaining seamless transitions to production backends.
@@ -108,6 +123,71 @@ import { createMockAdapter, createSupabaseAdapter } from 'schemock/adapters';
 import { createAuthMiddleware, createCacheMiddleware } from 'schemock/middleware';
 ```
 
+## Middleware System
+
+Schemock has a powerful middleware system with **clear separation between client and server middleware**.
+
+**Full documentation:** [`docs/middleware/README.md`](docs/middleware/README.md)
+
+| Doc | Description |
+|-----|-------------|
+| [Overview](docs/middleware/README.md) | Architecture and quick start |
+| [Client Middleware](docs/middleware/client-middleware.md) | Browser-side interceptors |
+| [Server Middleware](docs/middleware/server-middleware.md) | Server-side request handling |
+| [Custom Middleware](docs/middleware/custom-middleware.md) | Writing your own middleware |
+| [Built-in Reference](docs/middleware/built-in-middleware.md) | All built-in options |
+| [Examples](docs/middleware/examples.md) | Common patterns and recipes |
+
+### Quick Config Example
+
+```typescript
+// schemock.config.ts
+export default defineConfig({
+  frontend: {
+    middleware: {
+      // Client-side: inject token
+      auth: { tokenStorage: 'localStorage', tokenKey: 'authToken' },
+      retry: { maxRetries: 3 },
+      custom: ['./src/middleware/client/analytics.ts'],
+    },
+  },
+  backend: {
+    middleware: {
+      // Server-side: verify token, apply RLS
+      auth: { provider: 'jwt', required: true },
+      rateLimit: { max: 100, windowMs: 60000 },
+      rls: true,
+      custom: ['./src/middleware/server/tenant.ts'],
+    },
+  },
+});
+```
+
+### Custom Middleware APIs
+
+```typescript
+// Client middleware (browser)
+import { defineClientMiddleware } from 'schemock/schema';
+
+export const analyticsMiddleware = defineClientMiddleware('analytics', {
+  before: async ({ request }) => { /* track request */ },
+  after: async ({ response }) => { /* track response */ },
+});
+
+// Server middleware (Node.js/Edge)
+import { defineServerMiddleware, field } from 'schemock/schema';
+
+export const tenantMiddleware = defineServerMiddleware('tenant', {
+  config: {
+    headerName: field.string().default('X-Tenant-ID'),
+  },
+  handler: async ({ ctx, config, next }) => {
+    ctx.context.tenantId = ctx.headers[config.headerName.toLowerCase()];
+    return next();
+  },
+});
+```
+
 ## CLI Usage
 
 ```bash
@@ -153,6 +233,76 @@ Use `--framework react` for React/Next.js projects. Omit for Angular, Vue, Svelt
 - Zod for runtime validation
 - Comprehensive JSDoc comments
 - Unit tests with Vitest
+
+
+## CRITICAL: Testing New Features (AI Agents)
+
+When implementing new features or modules, you MUST follow this testing checklist:
+
+### 1. Write Tests for New Code
+- **Do NOT just run existing tests** - add new test cases for your new code
+- Create test files for new modules (e.g., `src/schema/define-client-middleware.test.ts`)
+- Test all new parameters, options, and edge cases
+- Test error conditions and validation
+
+### 2. Update Existing Tests
+- If modifying existing modules, update their test files
+- Add test cases for new parameters/options added to existing functions
+- Ensure backwards compatibility is tested
+
+### 3. Verification Checklist (REQUIRED)
+Before considering a feature complete, run ALL of these:
+
+```bash
+# 1. TypeScript compilation check
+npm run typecheck
+
+# 2. Build verification
+npm run build
+
+# 3. Run ALL tests (not just new ones)
+npm run test
+
+# 4. Verify exports work correctly
+# Check dist/*.d.ts files include new exports
+```
+
+### 4. What to Test
+
+| New Code | Required Tests |
+|----------|----------------|
+| New function | Unit tests for all parameters, return values, error cases |
+| New type/interface | Type inference tests (if applicable) |
+| New module file | Export tests, integration with existing code |
+| New CLI option | CLI argument parsing, generated output verification |
+| Bug fix | Regression test that fails without fix, passes with fix |
+
+### Example: Adding a New API Function
+
+```typescript
+// ❌ WRONG - Just ran existing tests
+npm run test  // "All tests pass!" but new code is untested
+
+// ✅ CORRECT - Added tests for new code
+// 1. Create test file: src/schema/my-new-feature.test.ts
+// 2. Write tests covering:
+//    - Happy path
+//    - All parameter variations
+//    - Error conditions
+//    - Edge cases
+// 3. Run: npm run test
+// 4. Run: npm run typecheck
+// 5. Run: npm run build
+```
+
+### If Tests Don't Exist
+
+If the module you're modifying has no existing tests:
+1. **Create the test file** following the pattern of similar modules
+2. Add tests for your changes
+3. Optionally add tests for existing functionality (time permitting)
+
+**Never skip testing just because a module lacks tests.**
 
 ## Commands
 

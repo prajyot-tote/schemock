@@ -45,6 +45,33 @@ function handleError(error: unknown): Response {
   return HttpResponse.json({ error: "Internal server error" }, { status: 500 });
 }
 
+// Decode JWT payload for context extraction (middleware support)
+function decodeJwtPayload(token: string): Record<string, unknown> | undefined {
+  try {
+    const base64Url = token.split('.')[1];
+    if (!base64Url) return undefined;
+    const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+    const jsonPayload = decodeURIComponent(atob(base64).split('').map(c =>
+      '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2)
+    ).join(''));
+    return JSON.parse(jsonPayload);
+  } catch {
+    return undefined;
+  }
+}
+
+// Extract context from request headers (JWT Bearer token)
+function extractContextFromHeaders(headers: Record<string, string>): Record<string, unknown> | undefined {
+  const authHeader = headers["Authorization"] || headers["authorization"];
+  if (!authHeader) return undefined;
+
+  const token = authHeader.startsWith("Bearer ")
+    ? authHeader.slice(7)
+    : authHeader;
+
+  return token ? decodeJwtPayload(token) : undefined;
+}
+
 export const endpointHandlers = [
   // POST /api/posts/bulk-delete
   http.post('/api/posts/bulk-delete', async ({ request, params: pathParams }) => {
@@ -55,8 +82,10 @@ export const endpointHandlers = [
     const headers: Record<string, string> = {};
     request.headers.forEach((value, key) => { headers[key] = value; });
 
+    const context = extractContextFromHeaders(headers);
+
     try {
-      const result = await endpointResolvers.postsBulkDelete({ db, params: params, body: body as Types.PostsBulkDeleteBody, headers });
+      const result = await endpointResolvers.postsBulkDelete({ db, params: params, body: body as Types.PostsBulkDeleteBody, headers, context });
       return HttpResponse.json(result);
     } catch (error) {
       return handleError(error);
@@ -72,8 +101,10 @@ export const endpointHandlers = [
     const headers: Record<string, string> = {};
     request.headers.forEach((value, key) => { headers[key] = value; });
 
+    const context = extractContextFromHeaders(headers);
+
     try {
-      const result = await endpointResolvers.postsBulkPublish({ db, params: params, body: body as Types.PostsBulkPublishBody, headers });
+      const result = await endpointResolvers.postsBulkPublish({ db, params: params, body: body as Types.PostsBulkPublishBody, headers, context });
       return HttpResponse.json(result);
     } catch (error) {
       return handleError(error);
@@ -92,8 +123,10 @@ export const endpointHandlers = [
     const headers: Record<string, string> = {};
     request.headers.forEach((value, key) => { headers[key] = value; });
 
+    const context = extractContextFromHeaders(headers);
+
     try {
-      const result = await endpointResolvers.usersByUserIdStats({ db, params: params as Types.UsersByUserIdStatsParams, body: body, headers });
+      const result = await endpointResolvers.usersByUserIdStats({ db, params: params as Types.UsersByUserIdStatsParams, body: body, headers, context });
       return HttpResponse.json(result);
     } catch (error) {
       return handleError(error);
@@ -114,8 +147,10 @@ export const endpointHandlers = [
     const headers: Record<string, string> = {};
     request.headers.forEach((value, key) => { headers[key] = value; });
 
+    const context = extractContextFromHeaders(headers);
+
     try {
-      const result = await endpointResolvers.search({ db, params: params as Types.SearchParams, body: body, headers });
+      const result = await endpointResolvers.search({ db, params: params as Types.SearchParams, body: body, headers, context });
       return HttpResponse.json(result);
     } catch (error) {
       return handleError(error);

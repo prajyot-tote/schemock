@@ -8,7 +8,7 @@ export interface User {
   email: string;
   name: string;
   role: 'admin' | 'user' | 'guest';
-  avatar?: string;
+  avatar?: string | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -18,7 +18,7 @@ export interface UserCreate {
   email: string;
   name: string;
   role?: 'admin' | 'user' | 'guest';
-  avatar?: string;
+  avatar?: string | null;
   createdAt: Date;
 }
 
@@ -27,7 +27,7 @@ export interface UserUpdate {
   email?: string;
   name?: string;
   role?: 'admin' | 'user' | 'guest';
-  avatar?: string;
+  avatar?: string | null;
   createdAt?: Date;
 }
 
@@ -132,15 +132,15 @@ export interface CommentFilter {
 /** PostDetail entity */
 export interface PostDetail {
   [key: string]: unknown;
-  id?: string;
-  title?: string;
-  content?: string;
-  published?: boolean;
-  views?: number;
-  createdAt?: Date;
-  author?: { id: string; name: string; avatar: string };
-  comments?: { id: string; content: string; createdAt: Date; author: { id: string; name: string } }[];
-  commentCount?: number;
+  id?: string | null;
+  title?: string | null;
+  content?: string | null;
+  published?: boolean | null;
+  views?: number | null;
+  createdAt?: Date | null;
+  author?: { id: string; name: string; avatar: string } | null;
+  comments?: { id: string; content: string; createdAt: Date; author: { id: string; name: string } }[] | null;
+  commentCount?: number | null;
 }
 
 /** Data for creating a PostDetail */
@@ -168,13 +168,13 @@ export interface PostDetailFilter {
 /** UserProfile entity */
 export interface UserProfile {
   [key: string]: unknown;
-  id?: string;
-  name?: string;
-  email?: string;
-  avatar?: string;
-  role?: 'admin' | 'user' | 'guest';
-  stats?: { postCount: number; commentCount: number; totalViews: number };
-  recentPosts?: { id: string; title: string; published: boolean; createdAt: Date }[];
+  id?: string | null;
+  name?: string | null;
+  email?: string | null;
+  avatar?: string | null;
+  role?: 'admin' | 'user' | 'guest' | null;
+  stats?: { postCount: number; commentCount: number; totalViews: number } | null;
+  recentPosts?: { id: string; title: string; published: boolean; createdAt: Date }[] | null;
 }
 
 /** Data for creating a UserProfile */
@@ -246,18 +246,18 @@ export interface ItemResponse<T> {
 
 // Request body for /api/posts/bulk-delete
 export interface PostsBulkDeleteBody {
-  ids: Array<string | null>;
+  ids: Array<string>;
 }
 
 // Response from /api/posts/bulk-delete
 export interface PostsBulkDeleteResponse {
   deleted: number;
-  failed: Array<string | null>;
+  failed: Array<string>;
 }
 
 // Request body for /api/posts/bulk-publish
 export interface PostsBulkPublishBody {
-  ids: Array<string | null>;
+  ids: Array<string>;
   published?: boolean;
 }
 
@@ -288,7 +288,7 @@ export interface SearchParams {
 
 // Response from /api/search
 export interface SearchResponse {
-  users: Array<{ id?: string | null; name?: string | null; email?: string | null }>;
-  posts: Array<{ id?: string | null; title?: string | null; authorName?: string | null }>;
+  users: Array<{ id: string; name: string; email: string }>;
+  posts: Array<{ id: string; title: string; authorName: string }>;
   total: number;
 }
