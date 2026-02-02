@@ -16,3 +16,15 @@ export {
   generateEndpointService,
   type ServiceGeneratorConfig,
 } from './service';
+export {
+  generateWithMiddleware,
+  type WithMiddlewareConfig,
+  type MiddlewareOperation,
+} from './with-middleware';
+export {
+  generateUnifiedHandlers,
+  generateNextjsRouteFile,
+  generateNextjsDynamicRouteFile,
+  type HandlerGeneratorConfig,
+  type HandlerTarget,
+} from './handler';
