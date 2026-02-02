@@ -46,6 +46,14 @@ import { generateFormSchemas } from '../generators/form-schemas';
 // Multi-target generation
 import { generateAllTargets, legacyConfigToTarget } from '../generators/target-registry';
 
+// Env var utilities
+import {
+  collectEnvVarsFromTargets,
+  collectEnvVarsForLegacyAdapter,
+  writeEnvExample,
+  printEnvVarSummary,
+} from '../generators/env-example';
+
 /**
  * Check if a package is installed
  */
@@ -154,6 +162,18 @@ export async function generate(options: GenerateOptions): Promise<void> {
     }
 
     console.log('\n✅ Multi-target generation complete\n');
+
+    // Collect and display required env vars
+    const allEnvVars = collectEnvVarsFromTargets(effectiveTargets, config);
+    if (allEnvVars.length > 0) {
+      if (!options.dryRun) {
+        await writeEnvExample(allEnvVars);
+      } else {
+        console.log('   [DRY RUN] Would write .env.example');
+      }
+      printEnvVarSummary(allEnvVars);
+    }
+
     return;
   }
 
@@ -236,6 +256,17 @@ export async function generate(options: GenerateOptions): Promise<void> {
 
   // Done
   console.log(`\n✅ Generated ${adapter} adapter in ${outputDir}\n`);
+
+  // Collect and display required env vars for legacy adapter
+  const envVars = collectEnvVarsForLegacyAdapter(adapter, config);
+  if (envVars.length > 0) {
+    if (!options.dryRun) {
+      await writeEnvExample(envVars);
+    } else {
+      console.log('   [DRY RUN] Would write .env.example');
+    }
+    printEnvVarSummary(envVars);
+  }
 
   // PGlite-specific reminder
   if (adapter === 'pglite' && !isPkgInstalled('@electric-sql/pglite')) {

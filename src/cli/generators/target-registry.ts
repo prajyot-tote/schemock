@@ -519,7 +519,7 @@ async function generatePGliteTarget(
  * @param target - Target configuration
  * @param allSchemas - ALL schemas (for type generation, ensures relations work)
  * @param targetSchemas - Filtered schemas (for handler/route generation)
- * @param _endpoints - Analyzed endpoints
+ * @param endpoints - Analyzed endpoints
  * @param config - Schemock config
  * @param options - Generation options
  */
@@ -527,7 +527,7 @@ async function generateServerTarget(
   target: GenerationTarget,
   allSchemas: AnalyzedSchema[],
   targetSchemas: AnalyzedSchema[],
-  _endpoints: AnalyzedEndpoint[],
+  endpoints: AnalyzedEndpoint[],
   config: SchemockConfig,
   options: GenerateOptions
 ): Promise<string[]> {
@@ -543,13 +543,14 @@ async function generateServerTarget(
   const allCount = allSchemas.filter(s => !s.isJunctionTable).length;
   const targetCount = targetSchemas.filter(s => !s.isJunctionTable).length;
   const isFiltered = targetCount < allCount;
+  const endpointSuffix = endpoints.length > 0 ? `, ${endpoints.length} endpoints` : '';
 
   switch (target.type) {
     case 'nextjs-api':
       if (isFiltered) {
-        console.log(`   📂 Next.js API routes (${targetCount}/${allCount} entities)`);
+        console.log(`   📂 Next.js API routes (${targetCount}/${allCount} entities${endpointSuffix})`);
       } else {
-        console.log(`   📂 Next.js API routes (${targetCount} entities)`);
+        console.log(`   📂 Next.js API routes (${targetCount} entities${endpointSuffix})`);
       }
 
       // Generate validation if enabled (only for target schemas)
@@ -565,7 +566,7 @@ async function generateServerTarget(
       }
 
       // Generate routes - pass both allSchemas (for types) and targetSchemas (for routes)
-      files.push(...(await generateNextjsApiTarget(allSchemas, targetSchemas, outputDir, target, config, options)));
+      files.push(...(await generateNextjsApiTarget(allSchemas, targetSchemas, outputDir, target, config, options, [], endpoints)));
       break;
 
     case 'nextjs-edge':
@@ -577,32 +578,32 @@ async function generateServerTarget(
     case 'hono':
     case 'node-handlers':
       if (isFiltered) {
-        console.log(`   📂 Node.js handlers (${targetCount}/${allCount} entities)`);
+        console.log(`   📂 Node.js handlers (${targetCount}/${allCount} entities${endpointSuffix})`);
       } else {
-        console.log(`   📂 Node.js handlers (${targetCount} entities)`);
+        console.log(`   📂 Node.js handlers (${targetCount} entities${endpointSuffix})`);
       }
       // Generate handlers - pass both allSchemas (for types) and targetSchemas (for handlers)
-      files.push(...(await generateNodeHandlersTarget(allSchemas, targetSchemas, outputDir, target, config, options)));
+      files.push(...(await generateNodeHandlersTarget(allSchemas, targetSchemas, outputDir, target, config, options, [], endpoints)));
       break;
 
     case 'supabase-edge':
       if (isFiltered) {
-        console.log(`   📂 Supabase Edge Functions (${targetCount}/${allCount} entities)`);
+        console.log(`   📂 Supabase Edge Functions (${targetCount}/${allCount} entities${endpointSuffix})`);
       } else {
-        console.log(`   📂 Supabase Edge Functions (${targetCount} entities)`);
+        console.log(`   📂 Supabase Edge Functions (${targetCount} entities${endpointSuffix})`);
       }
       // Generate Edge Functions - pass both allSchemas (for types) and targetSchemas (for functions)
-      files.push(...(await generateSupabaseEdgeTarget(allSchemas, targetSchemas, outputDir, target, config, options)));
+      files.push(...(await generateSupabaseEdgeTarget(allSchemas, targetSchemas, outputDir, target, config, options, [], endpoints)));
       break;
 
     case 'neon':
       if (isFiltered) {
-        console.log(`   📂 Neon Serverless handlers (${targetCount}/${allCount} entities)`);
+        console.log(`   📂 Neon Serverless handlers (${targetCount}/${allCount} entities${endpointSuffix})`);
       } else {
-        console.log(`   📂 Neon Serverless handlers (${targetCount} entities)`);
+        console.log(`   📂 Neon Serverless handlers (${targetCount} entities${endpointSuffix})`);
       }
       // Generate Neon handlers - pass both allSchemas (for types) and targetSchemas (for handlers)
-      files.push(...(await generateNeonTarget(allSchemas, targetSchemas, outputDir, target, config, options)));
+      files.push(...(await generateNeonTarget(allSchemas, targetSchemas, outputDir, target, config, options, [], endpoints)));
       break;
   }
 

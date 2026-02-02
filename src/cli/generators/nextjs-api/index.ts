@@ -12,6 +12,7 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type {
   AnalyzedSchema,
+  AnalyzedEndpoint,
   GenerationTarget,
   SchemockConfig,
   GenerateOptions,
@@ -19,8 +20,12 @@ import type {
 } from '../../types';
 
 import { generateRouteFile, generateDynamicRouteFile } from './route-template';
+import { generateEndpointRouteFile, pathToNextjsSegments } from './endpoint-route-template';
+import { generateSeedRouteFile } from './seed-route-template';
 import { generateLibFiles } from './lib-template';
 import { generateTypes } from '../types';
+import { generateAllEndpointInterfaces } from '../shared/endpoint-helpers';
+import { shouldGenerateSeedHandler } from '../shared/seed-handler-helpers';
 import {
   generateAuthMiddlewareNextjs,
   generateRateLimitMiddlewareNextjs,
@@ -48,6 +53,7 @@ import {
  * @param config - Schemock config
  * @param options - Generation options
  * @param customMiddleware - Analyzed custom middleware definitions (optional)
+ * @param endpoints - Analyzed custom endpoints (optional)
  */
 export async function generateNextjsApiTarget(
   allSchemas: AnalyzedSchema[],
@@ -56,7 +62,8 @@ export async function generateNextjsApiTarget(
   target: GenerationTarget,
   config: SchemockConfig,
   options: GenerateOptions,
-  customMiddleware: AnalyzedMiddleware[] = []
+  customMiddleware: AnalyzedMiddleware[] = [],
+  endpoints: AnalyzedEndpoint[] = []
 ): Promise<string[]> {
   const files: string[] = [];
 
@@ -143,6 +150,53 @@ export async function generateNextjsApiTarget(
     files.push(`${schema.pluralName}/[id]/route.ts`);
 
     console.log(`   ✓ ${schema.pluralName}/ (collection + [id] routes)`);
+  }
+
+  // Generate custom endpoint routes
+  if (endpoints.length > 0) {
+    const apiPrefix = config.apiPrefix || '/api';
+
+    // Generate endpoint type interfaces in _lib
+    const endpointTypesCode = generateAllEndpointInterfaces(endpoints);
+    await writeOutput(join(libDir, 'endpoint-types.ts'), endpointTypesCode, options.dryRun);
+    files.push('_lib/endpoint-types.ts');
+    console.log('   ✓ _lib/endpoint-types.ts');
+
+    // Generate route file for each endpoint
+    for (const endpoint of endpoints) {
+      const segments = pathToNextjsSegments(endpoint.path, apiPrefix);
+      const routeDir = join(outputDir, ...segments);
+
+      if (!options.dryRun) {
+        await mkdir(routeDir, { recursive: true });
+      }
+
+      // Calculate relative path from endpoint route dir back to _lib
+      const depth = segments.length;
+      const libRelativePath = '../'.repeat(depth) + '_lib';
+
+      const routeCode = generateEndpointRouteFile(endpoint, target, config, libRelativePath);
+      await writeOutput(join(routeDir, 'route.ts'), routeCode, options.dryRun);
+
+      const routePath = segments.join('/') + '/route.ts';
+      files.push(routePath);
+      console.log(`   ✓ ${routePath} (${endpoint.method} ${endpoint.path})`);
+    }
+  }
+
+  // Generate seed route if production seed is configured
+  if (shouldGenerateSeedHandler(config)) {
+    // Create _seed directory
+    const seedDir = join(outputDir, '_seed');
+    if (!options.dryRun) {
+      await mkdir(seedDir, { recursive: true });
+    }
+
+    // Generate seed route (depth 1 from output root)
+    const seedRouteCode = generateSeedRouteFile(allSchemas, target, config, '../_lib');
+    await writeOutput(join(seedDir, 'route.ts'), seedRouteCode, options.dryRun);
+    files.push('_seed/route.ts');
+    console.log('   ✓ _seed/route.ts (POST /_seed)');
   }
 
   return files;

@@ -12,6 +12,7 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type {
   AnalyzedSchema,
+  AnalyzedEndpoint,
   GenerationTarget,
   SchemockConfig,
   GenerateOptions,
@@ -23,6 +24,10 @@ import {
   generateEdgeFunctionFile,
   generateFatFunctionFile,
 } from './function-template';
+import { generateEndpointEdgeFunction } from './endpoint-function-template';
+import { generateSeedEdgeFunction } from './seed-function-template';
+import { generateAllEndpointInterfaces, deriveEdgeFunctionName } from '../shared/endpoint-helpers';
+import { shouldGenerateSeedHandler } from '../shared/seed-handler-helpers';
 import {
   generateSharedCors,
   generateSharedSupabaseClient,
@@ -72,6 +77,7 @@ import {
  * @param config - Schemock config
  * @param options - Generation options
  * @param customMiddleware - Analyzed custom middleware definitions
+ * @param endpoints - Analyzed custom endpoints (optional)
  */
 export async function generateSupabaseEdgeTarget(
   allSchemas: AnalyzedSchema[],
@@ -80,7 +86,8 @@ export async function generateSupabaseEdgeTarget(
   target: GenerationTarget,
   config: SchemockConfig,
   options: GenerateOptions,
-  customMiddleware: AnalyzedMiddleware[] = []
+  customMiddleware: AnalyzedMiddleware[] = [],
+  endpoints: AnalyzedEndpoint[] = []
 ): Promise<string[]> {
   const files: string[] = [];
 
@@ -187,6 +194,42 @@ export async function generateSupabaseEdgeTarget(
       files.push(`${functionName}/index.ts`);
       console.log(`   ✓ ${functionName}/index.ts`);
     }
+  }
+
+  // Generate custom endpoint edge functions
+  if (endpoints.length > 0) {
+    // Generate endpoint type interfaces in _shared
+    const endpointTypesCode = generateAllEndpointInterfaces(endpoints);
+    await writeOutput(join(sharedDir, 'endpoint-types.ts'), endpointTypesCode, options.dryRun);
+    files.push('_shared/endpoint-types.ts');
+    console.log('   ✓ _shared/endpoint-types.ts');
+
+    // Generate separate edge function for each endpoint
+    for (const endpoint of endpoints) {
+      const functionName = deriveEdgeFunctionName(endpoint.path);
+      const functionDir = join(outputDir, functionName);
+      if (!options.dryRun) {
+        await mkdir(functionDir, { recursive: true });
+      }
+
+      const functionCode = generateEndpointEdgeFunction(endpoint, target, config);
+      await writeOutput(join(functionDir, 'index.ts'), functionCode, options.dryRun);
+      files.push(`${functionName}/index.ts`);
+      console.log(`   ✓ ${functionName}/index.ts (${endpoint.method} ${endpoint.path})`);
+    }
+  }
+
+  // Generate seed Edge Function if production seed is configured
+  if (shouldGenerateSeedHandler(config)) {
+    const seedFunctionDir = join(outputDir, '_seed');
+    if (!options.dryRun) {
+      await mkdir(seedFunctionDir, { recursive: true });
+    }
+
+    const seedFunctionCode = generateSeedEdgeFunction(allSchemas, target, config);
+    await writeOutput(join(seedFunctionDir, 'index.ts'), seedFunctionCode, options.dryRun);
+    files.push('_seed/index.ts');
+    console.log('   ✓ _seed/index.ts (POST /_seed)');
   }
 
   return files;

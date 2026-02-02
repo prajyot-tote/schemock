@@ -7,7 +7,7 @@
  * @category CLI
  */
 
-import type { AnalyzedSchema, GenerationTarget, SchemockConfig } from '../../types';
+import type { AnalyzedSchema, AnalyzedEndpoint, GenerationTarget, SchemockConfig } from '../../types';
 
 /**
  * Generate the main router file
@@ -15,7 +15,9 @@ import type { AnalyzedSchema, GenerationTarget, SchemockConfig } from '../../typ
 export function generateRouterFile(
   schemas: AnalyzedSchema[],
   target: GenerationTarget,
-  config: SchemockConfig
+  config: SchemockConfig,
+  endpoints: AnalyzedEndpoint[] = [],
+  hasProductionSeed: boolean = false
 ): string {
   const hasAuth = target.middleware?.auth !== undefined;
   const hasNewMiddlewareConfig = config.middleware !== undefined;
@@ -31,6 +33,16 @@ export function generateRouterFile(
   for (const schema of schemas) {
     if (schema.isJunctionTable) continue;
     lines.push(`import * as ${schema.pluralName}Handlers from './handlers/${schema.pluralName}';`);
+  }
+
+  // Import endpoint handlers
+  for (const endpoint of endpoints) {
+    lines.push(`import * as ${endpoint.name}Endpoint from './handlers/${endpoint.name}';`);
+  }
+
+  // Import seed handler if production seed is configured
+  if (hasProductionSeed) {
+    lines.push("import * as seedHandler from './handlers/_seed';");
   }
 
   // Import middleware based on config format
@@ -73,6 +85,26 @@ export function generateRouterFile(
     lines.push(`  router.post('/${schema.pluralName}', ${schema.pluralName}Handlers.create);`);
     lines.push(`  router.put('/${schema.pluralName}/:id', ${schema.pluralName}Handlers.update);`);
     lines.push(`  router.delete('/${schema.pluralName}/:id', ${schema.pluralName}Handlers.remove);`);
+    lines.push('');
+  }
+
+  // Register custom endpoint routes
+  if (endpoints.length > 0) {
+    lines.push('  // Custom endpoint routes');
+    for (const endpoint of endpoints) {
+      const method = endpoint.method.toLowerCase();
+      lines.push(`  router.${method}('/${endpoint.path.replace(/^\//, '')}', ${endpoint.name}Endpoint.handler);`);
+    }
+    lines.push('');
+  }
+
+  // Register seed endpoint (with environment guard)
+  if (hasProductionSeed) {
+    lines.push('  // Production seed endpoint');
+    lines.push("  // Only available in non-production or when SCHEMOCK_ALLOW_SEED=true");
+    lines.push("  if (process.env.NODE_ENV !== 'production' || process.env.SCHEMOCK_ALLOW_SEED === 'true') {");
+    lines.push("    router.post('/_seed', seedHandler.handler);");
+    lines.push('  }');
     lines.push('');
   }
 
