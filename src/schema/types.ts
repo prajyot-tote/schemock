@@ -529,6 +529,36 @@ export interface EntityOptions<T = unknown> {
    * ```
    */
   metadata?: Record<string, unknown>;
+
+  /**
+   * Default middleware for all CRUD operations on this entity.
+   * Middleware is applied in order to all endpoints unless overridden.
+   *
+   * @example
+   * ```typescript
+   * const User = defineData('user', { ... }, {
+   *   middleware: [authMiddleware, tenantMiddleware],
+   * });
+   * ```
+   */
+  middleware?: MiddlewareReference<any>[];
+
+  /**
+   * Per-operation endpoint configuration overrides.
+   * Use this to customize middleware for specific CRUD operations.
+   *
+   * @example
+   * ```typescript
+   * const User = defineData('user', { ... }, {
+   *   middleware: [authMiddleware],  // Default for all
+   *   endpoints: {
+   *     list: { middleware: [] },    // Public list
+   *     delete: { middleware: [authMiddleware, adminMiddleware] },  // Admin only
+   *   },
+   * });
+   * ```
+   */
+  endpoints?: EntityEndpointsConfig;
 }
 
 /**
@@ -700,6 +730,11 @@ export interface EntitySchema<T = unknown> {
   /** Extensible metadata */
   metadata?: Record<string, unknown>;
 
+  /** Default middleware for all CRUD operations */
+  middleware?: MiddlewareReference<any>[];
+  /** Per-operation endpoint configuration overrides */
+  endpoints?: EntityEndpointsConfig;
+
   /** Internal type marker */
   readonly _entity?: T;
 }
@@ -830,6 +865,8 @@ export interface EndpointConfig<
   mockResolver: (ctx: MockResolverContext<TParams, TBody>) => TResponse | Promise<TResponse>;
   /** Optional description for documentation */
   description?: string;
+  /** Middleware to apply to this endpoint */
+  middleware?: MiddlewareReference<any>[];
 }
 
 /**
@@ -865,6 +902,8 @@ export interface EndpointSchema<
   mockResolver: (ctx: MockResolverContext<TParams, TBody>) => TResponse | Promise<TResponse>;
   /** Description for documentation */
   description?: string;
+  /** Middleware to apply to this endpoint */
+  middleware?: MiddlewareReference<any>[];
   /** Internal marker for type identification */
   readonly _endpoint: true;
 }
@@ -977,6 +1016,8 @@ export interface MiddlewareConfig<TConfig = Record<string, unknown>> {
   description?: string;
   /** Order hint - where in the chain this should run */
   order?: 'early' | 'normal' | 'late';
+  /** Headers required by this middleware (for documentation/validation) */
+  requiredHeaders?: string[];
 }
 
 /**
@@ -994,8 +1035,33 @@ export interface MiddlewareSchema<TConfig = Record<string, unknown>> {
   description?: string;
   /** Order hint */
   order: 'early' | 'normal' | 'late';
+  /** Headers required by this middleware (for documentation/validation) */
+  requiredHeaders?: string[];
   /** Internal marker for type identification */
   readonly _middleware: true;
+
+  /**
+   * Create a new middleware reference with configuration overrides.
+   * Use this to customize middleware behavior per-entity or per-endpoint.
+   *
+   * @param overrides - Partial configuration to override defaults
+   * @returns MiddlewareWithConfig that can be used in middleware arrays
+   *
+   * @example
+   * ```typescript
+   * const rateLimitMiddleware = defineServerMiddleware('rate-limit', {
+   *   config: { max: field.number().default(100) },
+   *   handler: async ({ ctx, config, next }) => { ... },
+   * });
+   *
+   * // Use with overrides
+   * const endpoint = defineEndpoint('/api/search', {
+   *   middleware: [rateLimitMiddleware.with({ max: 10 })],
+   *   ...
+   * });
+   * ```
+   */
+  with(overrides: Partial<TConfig>): MiddlewareWithConfig<TConfig>;
 }
 
 /**
@@ -1007,6 +1073,244 @@ export function isMiddlewareSchema(value: unknown): value is MiddlewareSchema {
     value !== null &&
     '_middleware' in value &&
     (value as MiddlewareSchema)._middleware === true
+  );
+}
+
+// Type aliases for explicit server middleware naming
+export type ServerMiddlewareConfig<TConfig = Record<string, unknown>> = MiddlewareConfig<TConfig>;
+export type ServerMiddlewareSchema<TConfig = Record<string, unknown>> = MiddlewareSchema<TConfig>;
+
+// ============================================================================
+// Middleware Reference Types (for entity/endpoint middleware configuration)
+// ============================================================================
+
+/**
+ * Result of calling `.with()` on a middleware schema.
+ * Contains the middleware reference and configuration overrides.
+ *
+ * @example
+ * ```typescript
+ * const rateLimitConfig: MiddlewareWithConfig = rateLimitMiddleware.with({ max: 10 });
+ * ```
+ */
+export interface MiddlewareWithConfig<TConfig = Record<string, unknown>> {
+  /** The original middleware schema */
+  middleware: MiddlewareSchema<TConfig>;
+  /** Configuration overrides to apply */
+  configOverrides: Partial<TConfig>;
+  /** Internal marker for type identification */
+  _middlewareRef: true;
+}
+
+/**
+ * Type guard to check if a value is a MiddlewareWithConfig
+ */
+export function isMiddlewareWithConfig(value: unknown): value is MiddlewareWithConfig {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    '_middlewareRef' in value &&
+    (value as MiddlewareWithConfig)._middlewareRef === true
+  );
+}
+
+/**
+ * A reference to middleware that can be used in entity or endpoint configuration.
+ * Can be either a direct middleware schema or a configured instance via `.with()`.
+ *
+ * @example
+ * ```typescript
+ * const middleware: MiddlewareReference[] = [
+ *   authMiddleware,                           // Direct reference
+ *   rateLimitMiddleware.with({ max: 100 }),  // Configured reference
+ * ];
+ * ```
+ */
+export type MiddlewareReference<TConfig = Record<string, unknown>> =
+  | MiddlewareSchema<TConfig>
+  | MiddlewareWithConfig<TConfig>;
+
+/**
+ * Configuration for a specific CRUD endpoint on an entity.
+ * Allows per-operation customization of middleware.
+ *
+ * @example
+ * ```typescript
+ * const deleteConfig: EntityEndpointConfig = {
+ *   middleware: [authMiddleware, adminMiddleware],
+ * };
+ * ```
+ */
+export interface EntityEndpointConfig {
+  /** Middleware to apply to this specific operation */
+  middleware?: MiddlewareReference<any>[];
+}
+
+/**
+ * Per-operation endpoint configuration overrides for an entity.
+ * Each operation can have its own middleware configuration.
+ *
+ * @example
+ * ```typescript
+ * const endpoints: EntityEndpointsConfig = {
+ *   list: { middleware: [] },                    // Public list
+ *   get: { middleware: [authMiddleware] },       // Requires auth
+ *   delete: { middleware: [authMiddleware, adminMiddleware] },  // Admin only
+ * };
+ * ```
+ */
+export interface EntityEndpointsConfig {
+  /** Configuration for the list (GET all) operation */
+  list?: EntityEndpointConfig;
+  /** Configuration for the get (GET by ID) operation */
+  get?: EntityEndpointConfig;
+  /** Configuration for the create (POST) operation */
+  create?: EntityEndpointConfig;
+  /** Configuration for the update (PUT/PATCH) operation */
+  update?: EntityEndpointConfig;
+  /** Configuration for the delete (DELETE) operation */
+  delete?: EntityEndpointConfig;
+}
+
+// ============================================================================
+// Client Middleware Definition Types
+// ============================================================================
+
+/**
+ * Context passed to client middleware before hook.
+ * Contains request information before it's sent to the server.
+ */
+export interface ClientBeforeContext {
+  /** The outgoing request details */
+  request: {
+    method: 'GET' | 'POST' | 'PUT' | 'DELETE' | 'PATCH';
+    url: string;
+    headers: Record<string, string>;
+    body?: unknown;
+  };
+  /** Shared context for passing data between middleware */
+  context: Record<string, unknown>;
+  /** Information about the API operation being performed */
+  operation: {
+    /** The entity being operated on (e.g., 'user', 'post') */
+    entity: string;
+    /** The action being performed (e.g., 'list', 'get', 'create', 'update', 'delete') */
+    action: string;
+  };
+}
+
+/**
+ * Context passed to client middleware after hook.
+ * Contains both request and response information.
+ */
+export interface ClientAfterContext extends ClientBeforeContext {
+  /** The response received from the server */
+  response: {
+    data: unknown;
+    status: number;
+    headers: Record<string, string>;
+  };
+  /** Metadata passed from before hook or previous middleware */
+  metadata: Record<string, unknown>;
+}
+
+/**
+ * Context passed to client middleware error hook.
+ * Contains request info and error details.
+ */
+export interface ClientErrorContext extends ClientBeforeContext {
+  /** Error information */
+  error: {
+    status: number;
+    message: string;
+    data?: unknown;
+  };
+  /** Metadata passed from before hook or previous middleware */
+  metadata: Record<string, unknown>;
+  /** Number of retry attempts so far */
+  retryCount: number;
+}
+
+/**
+ * Result returned from client middleware before hook.
+ * Can modify the request, short-circuit with a response, or pass metadata.
+ */
+export interface ClientBeforeResult {
+  /** Modified request properties (merged with original) */
+  request?: Partial<ClientBeforeContext['request']>;
+  /** Short-circuit response (skips actual API call) */
+  response?: {
+    data: unknown;
+    status: number;
+  };
+  /** Metadata to pass to after/error hooks */
+  metadata?: Record<string, unknown>;
+}
+
+/**
+ * Configuration for defining client-side middleware.
+ * Client middleware runs in the browser and intercepts API calls.
+ *
+ * @example
+ * ```typescript
+ * const analyticsMiddleware = defineClientMiddleware('analytics', {
+ *   before: async ({ request, operation }) => {
+ *     console.log(`API call: ${operation.action} ${operation.entity}`);
+ *     return { metadata: { startTime: Date.now() } };
+ *   },
+ *   after: async ({ response, metadata }) => {
+ *     const duration = Date.now() - (metadata.startTime as number);
+ *     console.log(`Response in ${duration}ms`);
+ *   },
+ *   onError: async ({ error, operation }) => {
+ *     console.error(`Error in ${operation.action}: ${error.message}`);
+ *   },
+ * });
+ * ```
+ */
+export interface ClientMiddlewareConfig {
+  /** Hook called before the request is sent */
+  before?: (ctx: ClientBeforeContext) => Promise<ClientBeforeResult | void>;
+  /** Hook called after a successful response */
+  after?: (ctx: ClientAfterContext) => Promise<ClientAfterContext['response'] | void>;
+  /** Hook called when an error occurs */
+  onError?: (ctx: ClientErrorContext) => Promise<unknown | void>;
+  /** Description for documentation */
+  description?: string;
+  /** Order hint - where in the chain this should run */
+  order?: 'early' | 'normal' | 'late';
+}
+
+/**
+ * Complete client middleware schema definition.
+ * This is the output of the defineClientMiddleware function.
+ */
+export interface ClientMiddlewareSchema {
+  /** Unique middleware name */
+  name: string;
+  /** Hook called before the request is sent */
+  before?: (ctx: ClientBeforeContext) => Promise<ClientBeforeResult | void>;
+  /** Hook called after a successful response */
+  after?: (ctx: ClientAfterContext) => Promise<ClientAfterContext['response'] | void>;
+  /** Hook called when an error occurs */
+  onError?: (ctx: ClientErrorContext) => Promise<unknown | void>;
+  /** Description for documentation */
+  description?: string;
+  /** Order hint */
+  order: 'early' | 'normal' | 'late';
+  /** Internal marker for type identification */
+  readonly _clientMiddleware: true;
+}
+
+/**
+ * Type guard to check if a value is a ClientMiddlewareSchema
+ */
+export function isClientMiddlewareSchema(value: unknown): value is ClientMiddlewareSchema {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    '_clientMiddleware' in value &&
+    (value as ClientMiddlewareSchema)._clientMiddleware === true
   );
 }
 

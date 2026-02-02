@@ -221,6 +221,7 @@ export function defineEndpoint<
     response,
     mockResolver: config.mockResolver,
     description: config.description,
+    middleware: config.middleware,
     _endpoint: true as const,
   };
 }

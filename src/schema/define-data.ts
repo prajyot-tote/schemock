@@ -235,6 +235,9 @@ export function defineData<T extends FieldDefinitions>(
     module: options?.module,
     group: options?.group,
     metadata: options?.metadata,
+    // Middleware configuration
+    middleware: options?.middleware,
+    endpoints: options?.endpoints,
   };
 
   // Only add relations/computed if non-empty
