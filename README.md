@@ -641,7 +641,41 @@ export const HealthEndpoint = defineEndpoint('/api/health', {
 
 When using inline `mockResolver` functions with local helper functions, be aware of these limitations:
 
-#### 1. Only Directly-Used Functions Are Copied
+#### 1. TypeScript Type Annotations Are Stripped
+
+**Important:** Inline resolver functions lose TypeScript type annotations during code generation. This is because `Function.toString()` at runtime returns compiled JavaScript, not the original TypeScript source.
+
+```typescript
+// What you write:
+mockResolver: async ({ context }) => {
+  const userId = context?.userId as string;  // Type assertion
+  const ids = new Set<string>();              // Generic type parameter
+  items.map((m: any) => m.id);                // Callback parameter type
+}
+
+// What gets generated (types stripped):
+mockResolver: async ({ context }) => {
+  const userId = context?.userId;             // ❌ Type assertion lost
+  const ids = new Set();                      // ❌ Generic lost
+  items.map((m) => m.id);                     // ❌ Parameter type lost
+}
+```
+
+**Solution:** Use named exported resolver functions instead - they are imported by reference and preserve all TypeScript types:
+
+```typescript
+// ✅ Named function - types preserved
+export async function myResolver({ context }: ResolverContext) {
+  const userId = context?.userId as string;
+  // All types work correctly
+}
+
+export const MyEndpoint = defineEndpoint('/api/test', {
+  mockResolver: myResolver  // Imported, not serialized
+});
+```
+
+#### 2. Only Directly-Used Functions Are Copied
 
 Local functions are only copied if they are **directly called** in a resolver. Transitive dependencies (functions called by other functions) are not automatically detected.
 
@@ -666,7 +700,7 @@ export const MyEndpoint = defineEndpoint('/api/test', {
 });
 ```
 
-#### 2. Arrow Functions Need Parentheses
+#### 3. Arrow Functions Need Parentheses
 
 Arrow functions without parentheses around parameters are not detected:
 
@@ -678,7 +712,7 @@ const double = x => x * 2;
 const double = (x) => x * 2;
 ```
 
-#### 3. Recommended: Use Named Functions for Complex Logic
+#### 4. Recommended: Use Named Functions for Complex Logic
 
 For resolvers with helper functions, use named exported functions instead of inline resolvers:
 

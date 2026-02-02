@@ -691,6 +691,28 @@ export default defineConfig({
 
 When implementing custom endpoints with inline `mockResolver` functions:
 
+### TypeScript Type Annotations Are Stripped
+
+**CRITICAL:** Inline resolver functions lose TypeScript type annotations during code generation. This is a fundamental JavaScript runtime limitation - `Function.toString()` returns compiled JavaScript, not the original TypeScript source.
+
+```typescript
+// What you write:
+mockResolver: async ({ context }) => {
+  const userId = context?.userId as string;  // Type assertion
+  const ids = new Set<string>();              // Generic type
+  items.map((m: any) => m.id);                // Parameter type
+}
+
+// What gets generated (types stripped):
+mockResolver: async ({ context }) => {
+  const userId = context?.userId;             // ❌ No type assertion
+  const ids = new Set();                      // ❌ No generic
+  items.map((m) => m.id);                     // ❌ No parameter type
+}
+```
+
+**Solution:** Use named exported resolver functions - they are imported by reference, preserving all TypeScript types.
+
 ### Functions That Will NOT Be Copied
 
 1. **Transitive dependencies** - If `funcA()` calls `funcB()`, but only `funcA` is used in the resolver, `funcB` will NOT be copied
