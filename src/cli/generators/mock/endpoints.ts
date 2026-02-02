@@ -287,6 +287,9 @@ function generateEndpointTypeSet(code: CodeBuilder, endpoint: AnalyzedEndpoint):
 /**
  * Generate client methods for all endpoints
  *
+ * Uses a factory pattern with interceptors for centralized auth and error handling,
+ * matching the pattern used in client.ts for entity CRUD operations.
+ *
  * @param endpoints - Analyzed endpoints
  * @returns Generated TypeScript code for endpoint client
  */
@@ -300,25 +303,127 @@ export function generateEndpointClient(endpoints: AnalyzedEndpoint[]): string {
   code.line();
 
   code.line("import type * as Types from './types';");
+  code.line("import { ApiError, type ClientConfig, type RequestContext } from './client';");
   code.line();
 
   code.comment('API base URL - configure based on environment');
   code.line("const API_BASE = typeof window !== 'undefined' ? window.location.origin : '';");
   code.line();
 
-  code.block('export const endpoints = {', () => {
+  // Generate EndpointsClient type
+  code.comment('Endpoints client type');
+  code.block('export interface EndpointsClient {', () => {
     for (const endpoint of dedupedEndpoints) {
-      generateClientMethod(code, endpoint);
+      const { name, pascalName, params, body } = endpoint;
+      const hasParams = params.length > 0;
+      const hasBody = body.length > 0;
+
+      const args: string[] = [];
+      if (hasParams) args.push(`params: Types.${pascalName}Params`);
+      if (hasBody) args.push(`body: Types.${pascalName}Body`);
+
+      code.line(`${name}: (${args.join(', ')}) => Promise<Types.${pascalName}Response>;`);
     }
-  }, '};');
+  }, '}');
+  code.line();
+
+  // Generate createEndpoints factory
+  code.multiDocComment([
+    'Create a configured endpoints client with interceptors.',
+    '',
+    'Use this for production code to centralize auth and error handling.',
+    '',
+    '@param config - Client configuration with interceptors',
+    '@returns Configured endpoints client',
+    '',
+    '@example',
+    '```typescript',
+    "import { createEndpoints } from './generated/mock/endpoints';",
+    '',
+    'const endpoints = createEndpoints({',
+    '  onRequest: (ctx) => {',
+    '    ctx.headers.Authorization = `Bearer ${getToken()}`;',
+    '    return ctx;',
+    '  },',
+    '  onError: (error) => {',
+    '    if (error.status === 401) {',
+    '      window.location.href = "/login";',
+    '    }',
+    '  }',
+    '});',
+    '',
+    'const result = await endpoints.authLogin({ email, password });',
+    '```',
+  ]);
+  code.block('export function createEndpoints(config?: ClientConfig): EndpointsClient {', () => {
+    code.line('const interceptors = config ?? {};');
+    code.line();
+
+    code.comment('Internal helper to run request through interceptors');
+    code.block('async function executeRequest<T>(', () => {
+      code.line('operation: string,');
+      code.line('fn: (headers: Record<string, string>) => Promise<T>');
+    }, '): Promise<T> {');
+    code.indent();
+
+    code.comment('Build request context');
+    code.line('let requestCtx: RequestContext = { headers: {}, operation };');
+    code.line();
+
+    code.comment('Run onRequest interceptor (user adds auth headers here)');
+    code.block('if (interceptors.onRequest) {', () => {
+      code.line('requestCtx = await interceptors.onRequest(requestCtx);');
+    });
+    code.line();
+
+    code.block('try {', () => {
+      code.line('return await fn(requestCtx.headers);');
+    }, '} catch (err) {');
+    code.indent();
+    code.comment('Enhance error if not already ApiError');
+    code.line('const error = err instanceof ApiError ? err : new ApiError(');
+    code.line('  err instanceof Error ? err.message : String(err),');
+    code.line('  500,');
+    code.line('  "INTERNAL_ERROR",');
+    code.line('  operation');
+    code.line(');');
+    code.line();
+    code.comment('Run onError interceptor');
+    code.block('if (interceptors.onError) {', () => {
+      code.line('await interceptors.onError(error);');
+    });
+    code.line();
+    code.line('throw error;');
+    code.dedent();
+    code.line('}');
+
+    code.dedent();
+    code.line('}');
+    code.line();
+
+    code.comment('Build endpoints client');
+    code.block('return {', () => {
+      for (const endpoint of dedupedEndpoints) {
+        generateClientMethodFactory(code, endpoint);
+      }
+    }, '};');
+  });
+  code.line();
+
+  // Default export
+  code.multiDocComment([
+    'Default endpoints client (no interceptors configured).',
+    'For production, use createEndpoints() with interceptors instead.',
+  ]);
+  code.line('export const endpoints = createEndpoints();');
 
   return code.toString();
 }
 
 /**
- * Generate a single client method
+ * Generate a single client method (factory version with interceptor support)
  */
-function generateClientMethod(code: CodeBuilder, endpoint: AnalyzedEndpoint): void {
+function generateClientMethodFactory(code: CodeBuilder, endpoint: AnalyzedEndpoint): void {
   const { name, pascalName, method, path, params, body, pathParams } = endpoint;
 
   // Determine if this is a method that typically sends a body
@@ -339,7 +444,11 @@ function generateClientMethod(code: CodeBuilder, endpoint: AnalyzedEndpoint): vo
 
   const returnType = `Promise<Types.${pascalName}Response>`;
 
-  code.block(`${name}: async (${args.join(', ')}): ${returnType} => {`, () => {
+  code.line(`${name}: (${args.join(', ')}): ${returnType} =>`);
+  code.indent();
+  code.line(`executeRequest('endpoints.${name}', async (headers) => {`);
+  code.indent();
+
     // Build URL with path parameter substitution
     let urlExpr: string;
 
@@ -366,12 +475,12 @@ function generateClientMethod(code: CodeBuilder, endpoint: AnalyzedEndpoint): vo
         });
       }
 
-      code.line('const response = await fetch(url.toString());');
+      code.line('const response = await fetch(url.toString(), { headers });');
     } else if (body.length > 0) {
       // POST/PUT/PATCH with explicit body
       code.line(`const response = await fetch(${urlExpr}, {`);
       code.line(`  method: '${method}',`);
-      code.line("  headers: { 'Content-Type': 'application/json' },");
+      code.line("  headers: { 'Content-Type': 'application/json', ...headers },");
       code.line('  body: JSON.stringify(body),');
       code.line('});');
     } else if (shouldSendParamsAsBody) {
@@ -381,30 +490,37 @@ function generateClientMethod(code: CodeBuilder, endpoint: AnalyzedEndpoint): vo
         code.line('const { ' + pathParams.join(', ') + ', ...bodyParams } = params;');
         code.line(`const response = await fetch(${urlExpr}, {`);
         code.line(`  method: '${method}',`);
-        code.line("  headers: { 'Content-Type': 'application/json' },");
+        code.line("  headers: { 'Content-Type': 'application/json', ...headers },");
         code.line('  body: JSON.stringify(bodyParams),');
         code.line('});');
       } else {
         // No path params - send all params as body
         code.line(`const response = await fetch(${urlExpr}, {`);
         code.line(`  method: '${method}',`);
-        code.line("  headers: { 'Content-Type': 'application/json' },");
+        code.line("  headers: { 'Content-Type': 'application/json', ...headers },");
         code.line('  body: JSON.stringify(params),');
         code.line('});');
       }
     } else {
       // Simple request without body (DELETE, or methods with only path params)
-      code.line(`const response = await fetch(${urlExpr}, { method: '${method}' });`);
+      code.line(`const response = await fetch(${urlExpr}, { method: '${method}', headers });`);
     }
 
     code.line();
     code.block('if (!response.ok) {', () => {
-      code.line('const error = await response.json().catch(() => ({}));');
-      code.line("throw new Error(error.message || `HTTP ${response.status}`);");
+      code.line('const errorData = await response.json().catch(() => ({}));');
+      code.line(`throw new ApiError(`);
+      code.line(`  errorData.message || \`HTTP \${response.status}\`,`);
+      code.line('  response.status,');
+      code.line(`  errorData.code || 'HTTP_ERROR',`);
+      code.line(`  'endpoints.${name}'`);
+      code.line(');');
     });
     code.line();
     code.line('return response.json();');
-  }, '},');
+    code.dedent();
+    code.line('}),');
+  code.dedent();
   code.line();
 }
 
