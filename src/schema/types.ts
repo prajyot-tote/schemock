@@ -1123,12 +1123,14 @@ export function isMiddlewareWithConfig(value: unknown): value is MiddlewareWithC
  * const middleware: MiddlewareReference[] = [
  *   authMiddleware,                           // Direct reference
  *   rateLimitMiddleware.with({ max: 100 }),  // Configured reference
+ *   'auth',                                   // String reference (by name)
  * ];
  * ```
  */
 export type MiddlewareReference<TConfig = Record<string, unknown>> =
   | MiddlewareSchema<TConfig>
-  | MiddlewareWithConfig<TConfig>;
+  | MiddlewareWithConfig<TConfig>
+  | string;
 
 /**
  * Configuration for a specific CRUD endpoint on an entity.

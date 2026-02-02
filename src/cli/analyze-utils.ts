@@ -15,8 +15,8 @@ import { toPascalCase } from './utils/pluralize';
 /**
  * Resolve a middleware reference to its analyzed form.
  *
- * Handles both direct middleware schema references and
- * configured references created via `.with()`.
+ * Handles direct middleware schema references, string references (by name),
+ * and configured references created via `.with()`.
  *
  * @param ref - The middleware reference to resolve
  * @param middlewareMap - Optional map of middleware names to analyzed middleware
@@ -28,8 +28,12 @@ import { toPascalCase } from './utils/pluralize';
  * const ref1 = resolveMiddlewareRef(authMiddleware, middlewareMap);
  * // { name: 'auth', pascalName: 'Auth', hasConfigOverrides: false }
  *
+ * // String reference (by name)
+ * const ref2 = resolveMiddlewareRef('auth', middlewareMap);
+ * // { name: 'auth', pascalName: 'Auth', hasConfigOverrides: false }
+ *
  * // Configured reference with .with()
- * const ref2 = resolveMiddlewareRef(rateLimitMiddleware.with({ max: 10 }), middlewareMap);
+ * const ref3 = resolveMiddlewareRef(rateLimitMiddleware.with({ max: 10 }), middlewareMap);
  * // { name: 'rate-limit', pascalName: 'RateLimit', hasConfigOverrides: true, configOverrides: { max: 10 } }
  * ```
  */
@@ -37,6 +41,16 @@ export function resolveMiddlewareRef(
   ref: MiddlewareReference<any>,
   middlewareMap?: Map<string, AnalyzedMiddleware>
 ): AnalyzedMiddlewareRef {
+  // Handle string references (middleware by name)
+  if (typeof ref === 'string') {
+    return {
+      name: ref,
+      pascalName: toPascalCase(ref),
+      hasConfigOverrides: false,
+      middleware: middlewareMap?.get(ref),
+    };
+  }
+
   if (isMiddlewareWithConfig(ref)) {
     // It's a .with() configured reference
     const middleware = ref.middleware;
@@ -58,7 +72,7 @@ export function resolveMiddlewareRef(
   }
 
   // This shouldn't happen if types are correct, but provide a fallback
-  throw new Error(`Invalid middleware reference: ${JSON.stringify(ref)}`);
+  throw new Error(`Invalid middleware reference: ${JSON.stringify(ref)}`)
 }
 
 /**

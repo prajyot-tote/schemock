@@ -63,6 +63,34 @@ describe('analyze-utils', () => {
   ]);
 
   describe('resolveMiddlewareRef', () => {
+    describe('string references', () => {
+      it('should resolve a string middleware reference', () => {
+        const result = resolveMiddlewareRef('auth');
+
+        expect(result.name).toBe('auth');
+        expect(result.pascalName).toBe('Auth');
+        expect(result.hasConfigOverrides).toBe(false);
+        expect(result.configOverrides).toBeUndefined();
+        expect(result.middleware).toBeUndefined();
+      });
+
+      it('should resolve a hyphenated string name to PascalCase', () => {
+        const result = resolveMiddlewareRef('rate-limit');
+
+        expect(result.name).toBe('rate-limit');
+        expect(result.pascalName).toBe('RateLimit');
+        expect(result.hasConfigOverrides).toBe(false);
+      });
+
+      it('should link to analyzed middleware when map is provided', () => {
+        const result = resolveMiddlewareRef('auth', analyzedMiddlewareMap);
+
+        expect(result.name).toBe('auth');
+        expect(result.middleware).toBeDefined();
+        expect(result.middleware?.name).toBe('auth');
+      });
+    });
+
     describe('direct middleware references', () => {
       it('should resolve a direct middleware reference', () => {
         const result = resolveMiddlewareRef(authMiddleware);
@@ -185,6 +213,30 @@ describe('analyze-utils', () => {
       expect(result).toBeDefined();
       expect(result![0].middleware).toBeDefined();
       expect(result![1].middleware).toBeDefined();
+    });
+
+    it('should resolve mixed array with string references', () => {
+      const result = resolveMiddlewareRefs([
+        authMiddleware,
+        'cache',  // string reference
+        rateLimitMiddleware.with({ max: 10 }),
+      ]);
+
+      expect(result).toBeDefined();
+      expect(result).toHaveLength(3);
+
+      // First: direct reference
+      expect(result![0].name).toBe('auth');
+      expect(result![0].hasConfigOverrides).toBe(false);
+
+      // Second: string reference
+      expect(result![1].name).toBe('cache');
+      expect(result![1].pascalName).toBe('Cache');
+      expect(result![1].hasConfigOverrides).toBe(false);
+
+      // Third: configured reference
+      expect(result![2].name).toBe('rate-limit');
+      expect(result![2].hasConfigOverrides).toBe(true);
     });
   });
 });
