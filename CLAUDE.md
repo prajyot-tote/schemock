@@ -476,6 +476,36 @@ const posts = await api.post.list();
 | `SchemockProvider` | ✅ | ❌ | ❌ | React provider for hooks |
 | `useSchemockClient()` | ✅ | ❌ | ❌ | Hook to access client from context |
 
+### Custom Endpoints (from `endpoints.ts`)
+
+| Export | Mock | PGlite | Supabase | Purpose |
+|--------|------|--------|----------|---------|
+| `createEndpoints(config?)` | ✅ | ✅ | ✅ | Factory to create configured endpoints client |
+| `EndpointsClient` | ✅ | ✅ | ✅ | Type interface for the endpoints client |
+| `endpoints` | ✅ | ✅ | ✅ | Default endpoints client (no config) |
+
+Custom endpoints defined with `defineEndpoint()` support the same interceptor pattern:
+
+```typescript
+import { createEndpoints } from './generated/mock/endpoints';
+
+const endpoints = createEndpoints({
+  onRequest: (ctx) => {
+    ctx.headers.Authorization = `Bearer ${getToken()}`;
+    return ctx;
+  },
+  onError: (error) => {
+    if (error.status === 401) {
+      window.location.href = '/login';
+    }
+  }
+});
+
+// Auth headers automatically included
+const result = await endpoints.authLogin({ email, password });
+const users = await endpoints.searchUsers({ query: 'john' });
+```
+
 ### PostgreSQL Error Code Mapping (PGlite & Supabase)
 
 Both PGlite and Supabase clients map PostgreSQL error codes to HTTP status codes:
