@@ -68,5 +68,7 @@ export type { EmbedMarker, ViewFieldDefinitions } from './define-view';
 // Endpoint definition
 export { defineEndpoint } from './define-endpoint';
 
-// Middleware definition
+// Middleware definitions
 export { defineMiddleware } from './define-middleware';
+export { defineServerMiddleware } from './define-server-middleware';
+export { defineClientMiddleware } from './define-client-middleware';
