@@ -9,3 +9,10 @@
  */
 
 export { generateUnifiedClient, type UnifiedClientConfig } from './client';
+export {
+  generateEntityService,
+  generateServices,
+  generateServicesIndex,
+  generateEndpointService,
+  type ServiceGeneratorConfig,
+} from './service';
