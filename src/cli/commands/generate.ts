@@ -7,6 +7,7 @@
 
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join, relative } from 'node:path';
+import { createRequire } from 'node:module';
 import { loadConfig } from '../config';
 import { discoverSchemas, getRelativePath } from '../discover';
 import { analyzeSchemas } from '../analyze';
@@ -74,10 +75,12 @@ import {
 
 /**
  * Check if a package is installed
+ * Uses createRequire for ESM compatibility
  */
+const _require = createRequire(import.meta.url);
 function isPkgInstalled(packageName: string): boolean {
   try {
-    require.resolve(packageName);
+    _require.resolve(packageName);
     return true;
   } catch {
     return false;

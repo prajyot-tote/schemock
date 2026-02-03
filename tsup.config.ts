@@ -24,8 +24,18 @@ export default defineConfig([
       '@tanstack/react-query',
       '@faker-js/faker',
       'msw',
+      '@mswjs/data',
       'zod',
+      '@electric-sql/pglite',
+      '@supabase/supabase-js',
     ],
+    esbuildOptions(options) {
+      // Prevent CJS polyfills in ESM output for Turbopack compatibility
+      options.supported = {
+        ...options.supported,
+        'dynamic-import': true,
+      };
+    },
   },
   // CLI binary (CJS only, with shebang)
   {
@@ -45,7 +55,10 @@ export default defineConfig([
       '@tanstack/react-query',
       '@faker-js/faker',
       'msw',
+      '@mswjs/data',
       'zod',
+      '@electric-sql/pglite',
+      '@supabase/supabase-js',
     ],
   },
 ]);
