@@ -18,8 +18,10 @@ import type {
 import { CodeBuilder } from '../../utils/code-builder';
 import { hasAnyRLS } from '../shared/rls';
 
-export { generateFrontendMiddlewareChain } from './middleware-chain';
-export { generateFrontendInterceptor } from './interceptor';
+import { generateFrontendMiddlewareChain } from './middleware-chain';
+import { generateFrontendInterceptor } from './interceptor';
+
+export { generateFrontendMiddlewareChain, generateFrontendInterceptor };
 
 /**
  * Result of frontend middleware generation
@@ -39,9 +41,6 @@ export function generateFrontendMiddleware(
   config: SchemockConfig,
   customMiddleware: AnalyzedMiddleware[] = []
 ): FrontendMiddlewareGenerationResult {
-  const { generateFrontendMiddlewareChain } = require('./middleware-chain');
-  const { generateFrontendInterceptor } = require('./interceptor');
-
   return {
     middlewareChain: generateFrontendMiddlewareChain(schemas, config, customMiddleware),
     interceptor: generateFrontendInterceptor(schemas, config, customMiddleware),

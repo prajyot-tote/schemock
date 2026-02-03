@@ -8,6 +8,7 @@
  * @category CLI
  */
 
+import * as path from 'path';
 import type { AnalyzedEndpoint, AnalyzedEndpointField } from '../../types';
 import { CodeBuilder } from '../../utils/code-builder';
 
@@ -442,9 +443,6 @@ export function generatePGliteEndpointResolvers(endpoints: AnalyzedEndpoint[], o
   // Helper to calculate relative import path
   const calculateRelativePath = (importPath: string): string => {
     if (!outputDir) return importPath;
-
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const path = require('path');
 
     const absOutputDir = path.resolve(outputDir);
     const absImportPath = path.resolve(importPath);

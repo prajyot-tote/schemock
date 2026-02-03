@@ -8,6 +8,7 @@
  * @category CLI
  */
 
+import * as path from 'path';
 import type { AnalyzedEndpoint, AnalyzedEndpointField } from '../../types';
 import { CodeBuilder } from '../../utils/code-builder';
 
@@ -867,9 +868,6 @@ export function generateEndpointResolvers(endpoints: AnalyzedEndpoint[], outputD
   // Helper to calculate relative import path
   const calculateRelativePath = (importPath: string): string => {
     if (!outputDir) return importPath;
-
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const path = require('path');
 
     // Resolve both paths to absolute to ensure correct calculation
     const absOutputDir = path.resolve(outputDir);
