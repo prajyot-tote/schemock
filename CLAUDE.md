@@ -16,6 +16,21 @@ This applies to ALL plugin paths:
 - Any other plugin cache directories
 
 
+## CRITICAL: Always Ask Permission Before Publishing
+
+**NEVER publish to npm without explicit user permission.**
+
+Before running `npm publish`:
+1. **STOP** and ask: "Ready to publish. Should I proceed?"
+2. Wait for explicit confirmation (e.g., "yes", "publish", "go ahead")
+3. Only then run the publish command
+
+This applies to:
+- `npm publish`
+- `npm version` (when followed by publish)
+- Any command that releases code publicly
+
+
 ## CRITICAL: Project Boundary - View Only Outside This Folder
 
 **Only modify files within this project folder** (`/Users/prajyot/Documents/Work/Matt/schemock/`).
