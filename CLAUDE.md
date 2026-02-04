@@ -1016,6 +1016,258 @@ export const tenantMiddleware = defineMiddleware('tenant', {
 
 ---
 
+## Multi-Target Generation
+
+Generate multiple outputs from a single schema definition. See [docs/targets.md](docs/targets.md) for full documentation.
+
+### Target Types
+
+| Target | Category | Description |
+|--------|----------|-------------|
+| `mock` | Client | In-memory mock with MSW handlers |
+| `supabase` | Client | Supabase client SDK |
+| `firebase` | Client | Firebase/Firestore client |
+| `fetch` | Client | Generic REST client |
+| `pglite` | Client | PostgreSQL in browser |
+| `graphql` | Client | GraphQL/Apollo client |
+| `nextjs-api` | Server | Next.js App Router routes |
+| `nextjs-edge` | Server | Next.js Edge Runtime |
+| `node-handlers` | Server | Generic Node.js handlers |
+| `express` | Server | Express.js routes |
+| `hono` | Server | Hono edge handlers |
+| `supabase-edge` | Server | Supabase Edge Functions |
+| `neon` | Server | Neon serverless PostgreSQL |
+
+### Basic Multi-Target Config
+
+```typescript
+targets: [
+  {
+    name: 'client',
+    type: 'supabase',
+    output: './src/generated/supabase',
+  },
+  {
+    name: 'api',
+    type: 'nextjs-api',
+    output: './src/app/api',
+    backend: 'supabase',
+    middleware: {
+      auth: { provider: 'supabase-auth' },
+      validation: true,
+    },
+  },
+]
+```
+
+### Entity Filtering
+
+Filter which entities are generated per target:
+
+```typescript
+{
+  type: 'nextjs-api',
+  // By name
+  entities: ['user', 'post'],
+  excludeEntities: ['auditLog'],
+  // By tags (OR logic)
+  tags: ['public'],
+  excludeTags: ['internal'],
+  // By module/group (exact match)
+  module: 'auth',
+  group: 'public',
+}
+```
+
+### Adding Tags to Schemas
+
+```typescript
+const User = defineData('user', {
+  id: field.uuid(),
+  email: field.email(),
+}, {
+  tags: ['auth', 'public', 'core'],
+  module: 'identity',
+  group: 'public',
+  metadata: { owner: 'platform-team' },
+});
+```
+
+---
+
+## CLI Options Reference
+
+### generate
+
+```bash
+npx schemock generate [options]
+
+Options:
+  --adapter, -a <type>     Adapter: mock|supabase|firebase|fetch|pglite|graphql
+  --framework <type>       Framework: react|none (default: none)
+  --output, -o <dir>       Output directory (default: ./src/generated)
+  --config, -c <file>      Config file path
+  --only <entities>        Only generate for these entities (comma-separated)
+  --exclude <entities>     Exclude these entities (comma-separated)
+  --with-form-schemas      Generate Zod validation, form defaults, table columns
+  --watch, -w              Watch mode - regenerate on changes
+  --dry-run                Preview without writing files
+  --verbose, -v            Verbose output
+```
+
+### generate:sql
+
+```bash
+npx schemock generate:sql [options]
+
+Options:
+  --output, -o <dir>       Output directory (default: ./sql)
+  --combined               Generate single schema.sql file
+  --target <platform>      Target: postgres|supabase|pglite
+  --only <sections>        Only: tables,foreign-keys,indexes,rls,functions,triggers
+  --readme                 Generate README documentation
+  --dry-run                Preview without writing
+  --verbose, -v            Verbose output
+```
+
+See [docs/sql-generation.md](docs/sql-generation.md) for full SQL generation documentation.
+
+### Entity Filtering Examples
+
+```bash
+# Only specific entities
+npx schemock generate --only user,post
+
+# Exclude entities
+npx schemock generate --exclude audit,log
+
+# Combined with adapter
+npx schemock generate --adapter supabase --only user,post
+```
+
+---
+
+## Backend Configuration (v1.0)
+
+For server-side code generation with services and routes.
+
+### Backend Config Options
+
+```typescript
+backend: {
+  framework: 'nextjs',        // node | nextjs | supabase-edge | neon
+  output: './src/generated/server',
+  database: {
+    type: 'supabase',         // postgres | supabase | neon
+    connectionEnvVar: 'DATABASE_URL',
+  },
+  // Services configuration
+  services: {
+    output: './src/services',
+    dbImport: '@/lib/db',     // Module path for DB import
+  },
+  // Routes configuration
+  routes: {
+    output: './src/app/api',
+    overwrite: false,         // Don't overwrite existing
+    skip: ['DELETE /api/users/:id'],  // Skip specific routes
+    skipEntities: ['auditLog'],       // Skip entities entirely
+  },
+  middlewareImport: '@/middleware',   // Import path for middleware
+}
+```
+
+### Generated Server Structure
+
+**Next.js API (`nextjs-api`):**
+```
+src/app/api/
+├── _lib/
+│   ├── types.ts      # TypeScript types
+│   ├── auth.ts       # Auth middleware
+│   ├── validate.ts   # Validation
+│   ├── supabase.ts   # DB client
+│   └── chain.ts      # Middleware chain
+├── users/
+│   ├── route.ts      # GET list, POST create
+│   └── [id]/route.ts # GET/PUT/DELETE by ID
+└── _seed/route.ts    # Production seed endpoint
+```
+
+**Node handlers (`node-handlers`):**
+```
+src/generated/node/
+├── types.ts
+├── db.ts
+├── router.ts         # Express-compatible router
+├── middleware/
+│   ├── auth.ts
+│   └── validate.ts
+└── handlers/
+    ├── users.ts
+    └── posts.ts
+```
+
+See [docs/nextjs-integration.md](docs/nextjs-integration.md) for Next.js details.
+
+---
+
+## Views (defineView)
+
+Create computed projections/views over entity schemas.
+
+```typescript
+import { defineView, embed, pick, omit } from 'schemock/schema';
+
+const UserFullView = defineView('user-full', {
+  // Pick specific fields from User
+  ...pick(User, ['id', 'name', 'email']),
+
+  // Embed related profile
+  profile: embed(UserProfile),
+
+  // Embed recent posts with config
+  recentPosts: embed(Post, {
+    limit: 5,
+    orderBy: { createdAt: 'desc' },
+    select: ['id', 'title', 'createdAt'],
+  }),
+
+  // Nested computed stats
+  stats: {
+    postCount: field.computed({
+      mock: () => Math.floor(Math.random() * 50),
+      resolve: (_, db, ctx) => db.post.count({
+        where: { authorId: ctx.params.id }
+      }),
+    }),
+  },
+}, {
+  endpoint: '/api/users/:id/full',
+  params: ['id'],
+});
+```
+
+### View Helpers
+
+| Helper | Description |
+|--------|-------------|
+| `embed(entity, config?)` | Include related entity data |
+| `pick(entity, fields[])` | Select specific fields |
+| `omit(entity, fields[])` | Exclude specific fields |
+
+### Embed Config
+
+```typescript
+embed(Post, {
+  limit: 5,                          // Max records
+  orderBy: { createdAt: 'desc' },    // Sort order
+  select: ['id', 'title'],           // Fields to include
+})
+```
+
+---
+
 ## Reporting Issues
 
 If you encounter bugs in:

@@ -1570,6 +1570,61 @@ const Payment = defineData('payment', { /* ... */ }, {
 });
 ```
 
+---
+
+## Server-Side Generation Quick Reference
+
+Generate server API routes in addition to client SDKs.
+
+### Next.js App Router
+
+```bash
+# Generate Next.js API routes
+npx schemock generate
+
+# With config:
+# schemock.config.ts
+targets: [
+  { type: 'nextjs-api', output: './src/app/api', backend: 'supabase' }
+]
+```
+
+See [docs/nextjs-integration.md](docs/nextjs-integration.md) for full guide.
+
+### Supabase Edge Functions
+
+```bash
+# In schemock.config.ts:
+targets: [
+  { type: 'supabase-edge', output: './supabase/functions' }
+]
+```
+
+### Node.js / Express
+
+```bash
+# In schemock.config.ts:
+targets: [
+  { type: 'node-handlers', output: './src/handlers', backend: 'supabase' }
+]
+```
+
+### All Target Types
+
+| Target | Description |
+|--------|-------------|
+| `mock` | In-memory mock (client) |
+| `supabase` | Supabase client SDK |
+| `pglite` | PostgreSQL in browser |
+| `nextjs-api` | Next.js App Router |
+| `node-handlers` | Express/Node handlers |
+| `supabase-edge` | Supabase Edge Functions |
+| `neon` | Neon serverless |
+
+See [docs/targets.md](docs/targets.md) for complete target documentation.
+
+---
+
 ### Generated Server Files
 
 **Next.js API Routes** (`nextjs-api` target):
